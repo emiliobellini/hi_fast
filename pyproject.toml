@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hi_fast"
+version = "0.1.0"
+authors = [{name="Emilio Bellini"}]
+description = "TODO"
+requires-python = ">=3.8.0"
+dependencies = [
+    "numpy>=1.26",
+    "joblib>=1.3",
+    "scikit-learn>=1.3",
+    "scipy>=1.15",
+    "tensorflow>=2.15",
+    "classy>3",
+]
+
+[project.urls]
+Homepage = "https://github.com/emiliobellini/hi_fast"
+Documentation = "https://github.com/emiliobellini/hi_fast/README.md"
+Source = "https://github.com/emiliobellini/hi_fast"
+Tracker = "https://github.com/emiliobellini/hi_fast/issues"
+Licensing = "https://github.com/emiliobellini/hi_fast/LICENSE"
