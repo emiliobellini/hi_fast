@@ -34,7 +34,7 @@ class Spectrum(object):
     def _to_numpy_array(self, x):
         if isinstance(x, float):
             x = np.array([x])
-        if isinstance(x, int):
+        elif isinstance(x, int):
             x = np.array([float(x)])
         elif isinstance(x, list):
             x = np.array(x)
@@ -380,6 +380,10 @@ class Cell(Spectrum):
                 'ell = [{} - {}] out of range [{} - {}]'.format(ell.min(), ell.max(), low, high))
         return
 
+    def _to_numpy_array(self, x):
+        x = Spectrum._to_numpy_array(self, x)
+        return x.astype(int)
+
     def get(self, ell, params):
         """
         Main method to get the Cell(ell).
@@ -480,7 +484,6 @@ class Cell(Spectrum):
         cosmo = classy.Class()
         cosmo.set(params | class_args | prec)
         cosmo.compute()
-        print(params | class_args | prec)
 
         # Get Cells
         cl_type = self.name.split('_')[1].lower()

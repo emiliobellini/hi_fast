@@ -48,7 +48,7 @@ class HiFast(object):
         return
 
     @io.timeit
-    def get_pk(self, k, z, params, name='m', nonlinear=False, timeit=False):
+    def get_pk(self, k, z, params, name='m', nonlinear=False, squeeze=False, timeit=False):
         """
         Main method to get the power spectrum P(k, z) at some z and k.
         Arguments:
@@ -60,6 +60,7 @@ class HiFast(object):
             - cb: CDM+baryons;
             - weyl: Weyl potential.
         - nonlinear (bool, default: False);
+        - squeeze (bool, default: False): squeeze dimensions of output array;
         - timeit (bool, default: False): print execution time.
 
         NOTE: k is in units of h/Mpc. P(k, z) is in units of (Mpc/h)^3.
@@ -75,10 +76,19 @@ class HiFast(object):
         # Get output
         out = emu.get(k, z, params)
 
+        # Squeeze dimensions
+        if squeeze:
+            if out.shape == (1, 1):
+                return out[0, 0]
+            elif out.shape[0] == 1:
+                return out[0]
+            elif out.shape[1] == 1:
+                return out[:, 0]
+
         return out
 
     @io.timeit
-    def get_fk(self, k, z, params, name='m', nonlinear=False, timeit=False):
+    def get_fk(self, k, z, params, name='m', nonlinear=False, squeeze=False, timeit=False):
         """
         Main method to get the growth rate
         f(k, z) = dln P(k, z)/dln a at some z and k.
@@ -91,6 +101,7 @@ class HiFast(object):
             - cb: CDM+baryons;
             - weyl: Weyl potential.
         - nonlinear (bool, default: False);
+        - squeeze (bool, default: False): squeeze dimensions of output array;
         - timeit (bool, default: False): print execution time.
 
         NOTE: k is in units of h/Mpc. f(k, z) is dimensionless.
@@ -106,10 +117,19 @@ class HiFast(object):
         # Get output
         out = emu.get(k, z, params)
 
+        # Squeeze dimensions
+        if squeeze:
+            if out.shape == (1, 1):
+                return out[0, 0]
+            elif out.shape[0] == 1:
+                return out[0]
+            elif out.shape[1] == 1:
+                return out[:, 0]
+
         return out
 
     @io.timeit
-    def get_cell(self, ell, params, name='TT', timeit=False):
+    def get_cell(self, ell, params, name='TT', squeeze=False, timeit=False):
         """
         Main method to get the Cell at some ell. As in Class,
         we emulate the dimensionless Cell using:
@@ -130,6 +150,7 @@ class HiFast(object):
             - T: temperature
             - E, B: polarization
             - p: lensing potential
+        - squeeze (bool, default: False): squeeze dimensions of output array;
         - timeit (bool, default: False): print execution time.
 
         """
@@ -143,12 +164,16 @@ class HiFast(object):
         # Get output
         out = emu.get(ell, params)
 
+        # Squeeze dimensions
+        if squeeze and out.shape == (1,):
+            return out[0]
+
         return out
 
     @io.timeit
     def get_pk_from_class(
         self, k, z, params, name='m', precision=0,
-        nonlinear=False, timeit=False):
+        nonlinear=False, squeeze=False, timeit=False):
         """
         Main method to get the power spectrum P(k, z) at some z and k
         from Class.
@@ -167,6 +192,7 @@ class HiFast(object):
           Eitherwise, it is possible to pass directly a
           dictionary of precision parameters.
         - nonlinear (bool, default: False);
+        - squeeze (bool, default: False): squeeze dimensions of output array;
         - timeit (bool, default: False): print execution time.
 
         NOTE: k is in units of h/Mpc. P(k, z) is in units of (Mpc/h)^3.
@@ -182,12 +208,21 @@ class HiFast(object):
         # Get output
         out = emu.get_from_class(k, z, params, precision=precision)
 
+        # Squeeze dimensions
+        if squeeze:
+            if out.shape == (1, 1):
+                return out[0, 0]
+            elif out.shape[0] == 1:
+                return out[0]
+            elif out.shape[1] == 1:
+                return out[:, 0]
+
         return out
 
     @io.timeit
     def get_fk_from_class(
         self, k, z, params, name='m', precision=0,
-        nonlinear=False, timeit=False):
+        nonlinear=False, squeeze=False, timeit=False):
         """
         Main method to get the growth rate
         f(k, z) = dln P(k, z)/dln a at some z and k from Class.
@@ -206,6 +241,7 @@ class HiFast(object):
           Eitherwise, it is possible to pass directly a
           dictionary of precision parameters.
         - nonlinear (bool, default: False);
+        - squeeze (bool, default: False): squeeze dimensions of output array;
         - timeit (bool, default: False): print execution time.
 
         NOTE: k is in units of h/Mpc.
@@ -221,12 +257,21 @@ class HiFast(object):
         # Get output
         out = emu.get_from_class(k, z, params, precision=precision)
 
+        # Squeeze dimensions
+        if squeeze:
+            if out.shape == (1, 1):
+                return out[0, 0]
+            elif out.shape[0] == 1:
+                return out[0]
+            elif out.shape[1] == 1:
+                return out[:, 0]
+
         return out
 
     @io.timeit
     def get_cell_from_class(
         self, ell, params, name='TT', precision=0,
-        timeit=False):
+        squeeze=False, timeit=False):
         """
         Main method to get the Cell at some ell from Class.
         As in Class, we emulate the dimensionless Cell using:
@@ -252,7 +297,8 @@ class HiFast(object):
             - 1: precision parameters used for this emulator;
             - 2: high precision parameters.
           Eitherwise, it is possible to pass directly a
-          dictionary of precision parameters.
+          dictionary of precision parameters;
+        - squeeze (bool, default: False): squeeze dimensions of output array;
         - timeit (bool, default: False): print execution time.
 
         """
@@ -265,5 +311,9 @@ class HiFast(object):
 
         # Get output
         out = emu.get_from_class(ell, params, precision=precision)
+
+        # Squeeze dimensions
+        if squeeze and out.shape == (1,):
+            return out[0]
 
         return out
