@@ -341,11 +341,9 @@ class Pk(Spectrum):
         pk_out = interp.make_splrep(k_out, pk_out, s=0)(k)
         pk = interp.make_splrep(z_out, pk_out.T, s=0)(z).T
 
-        # The output is in units Mpc**3 and I want (Mpc/h)**3.
-        pk *= cosmo.h()**3.
-
         if self.name.startswith('pk_'):
-            return pk
+            # The output is in units Mpc**3 and I want (Mpc/h)**3.
+            return pk*cosmo.h()**3.
         elif self.name.startswith('f_'):
             # Calculate derivative if growth rate f
             dpkdz = interp.make_splrep(z_out, pk_out.T, s=0).derivative()(z).T
