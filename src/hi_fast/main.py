@@ -20,7 +20,7 @@ class HiFast(object):
         self._emu = {}
         if name is not None:
             self.load(name, root=self.root, timeit=timeit, verbose=verbose)
-        
+
         pass
 
     @io.timeit
@@ -48,7 +48,15 @@ class HiFast(object):
         return
 
     @io.timeit
-    def get_pk(self, k, z, params, name='m', nonlinear=False, squeeze=False, timeit=False):
+    def get_pk(
+            self,
+            k,
+            z,
+            params,
+            name='m',
+            nonlinear=False,
+            squeeze=False,
+            timeit=False):
         """
         Main method to get the power spectrum P(k, z) at some z and k.
         Arguments:
@@ -88,7 +96,15 @@ class HiFast(object):
         return out
 
     @io.timeit
-    def get_fk(self, k, z, params, name='m', nonlinear=False, squeeze=False, timeit=False):
+    def get_fk(
+            self,
+            k,
+            z,
+            params,
+            name='m',
+            nonlinear=False,
+            squeeze=False,
+            timeit=False):
         """
         Main method to get the growth rate
         f(k, z) = dln P(k, z)/dln a at some z and k.
@@ -133,7 +149,7 @@ class HiFast(object):
         """
         Main method to get the Cell at some ell. As in Class,
         we emulate the dimensionless Cell using:
-    
+
         ell*(ell+1.)/2./pi * Cl
 
         Arguments:
@@ -172,8 +188,15 @@ class HiFast(object):
 
     @io.timeit
     def get_pk_from_class(
-        self, k, z, params, name='m', precision=0,
-        nonlinear=False, squeeze=False, timeit=False):
+            self,
+            k,
+            z,
+            params,
+            name='m',
+            precision=0,
+            nonlinear=False,
+            squeeze=False,
+            timeit=False):
         """
         Main method to get the power spectrum P(k, z) at some z and k
         from Class.
@@ -221,8 +244,15 @@ class HiFast(object):
 
     @io.timeit
     def get_fk_from_class(
-        self, k, z, params, name='m', precision=0,
-        nonlinear=False, squeeze=False, timeit=False):
+            self,
+            k,
+            z,
+            params,
+            name='m',
+            precision=0,
+            nonlinear=False,
+            squeeze=False,
+            timeit=False):
         """
         Main method to get the growth rate
         f(k, z) = dln P(k, z)/dln a at some z and k from Class.
@@ -270,12 +300,17 @@ class HiFast(object):
 
     @io.timeit
     def get_cell_from_class(
-        self, ell, params, name='TT', precision=0,
-        squeeze=False, timeit=False):
+            self,
+            ell,
+            params,
+            name='TT',
+            precision=0,
+            squeeze=False,
+            timeit=False):
         """
         Main method to get the Cell at some ell from Class.
         As in Class, we emulate the dimensionless Cell using:
-    
+
         ell*(ell+1.)/2./pi * Cl
 
         Arguments:

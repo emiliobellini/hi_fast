@@ -4,7 +4,7 @@ import scipy.interpolate as interp
 import hi_fast.io as io
 
 
-# ------------------- Spectrum -------------------------------------------------#
+# ------------------- Spectrum -----------------------------------------------#
 
 class Spectrum(object):
 
@@ -141,7 +141,7 @@ class Spectrum(object):
         return y
 
 
-# ------------------- Pk -------------------------------------------------------#
+# ------------------- Pk -----------------------------------------------------#
 
 class Pk(Spectrum):
 
@@ -149,8 +149,8 @@ class Pk(Spectrum):
         Spectrum.__init__(self, **kwargs)
         # Init specific attributes
         self.has_k_and_z = True
-        self.z_array=kwargs['z_array']
-        self.k_array=kwargs['k_array']
+        self.z_array = kwargs['z_array']
+        self.k_array = kwargs['k_array']
 
         # Placeholders
         self.k_stored = None
@@ -166,7 +166,8 @@ class Pk(Spectrum):
         high = self.k_array.max()
         if k.min() < low or k.max() > high:
             raise Exception(
-                'k (h/Mpc) = [{} - {}] out of range [{} - {}]'.format(k.min(), k.max(), low, high))
+                'k (h/Mpc) = [{} - {}] out of range [{} - {}]'.format(
+                    k.min(), k.max(), low, high))
         return
 
     def _check_z_values(self, z):
@@ -177,7 +178,8 @@ class Pk(Spectrum):
         high = self.class_vars['z_pk']['prior']['max']
         if z.min() < low or z.max() > high:
             raise Exception(
-                'z = [{} - {}] out of range [{} - {}]'.format(z.min(), z.max(), low, high))
+                'z = [{} - {}] out of range [{} - {}]'.format(
+                    z.min(), z.max(), low, high))
         return
 
     def get(self, k, z, params):
@@ -225,10 +227,12 @@ class Pk(Spectrum):
             # This is done only if the emulator emulates the ratio
             if self.ref is not None:
                 ref = interp.make_splrep(self.z_array, self.ref.T, s=0)(z)
-                self.ref_stored = interp.make_splrep(self.k_array, ref.T, s=0)(k)
+                self.ref_stored = interp.make_splrep(
+                    self.k_array, ref.T, s=0)(k)
 
         # Prepare parameters list
-        params_emu = [params[name] if (name != 'z_pk') else None for name in self.x_names]
+        params_emu = [params[name] if (name != 'z_pk') else None
+                      for name in self.x_names]
         idx_z_pk = self.x_names.index('z_pk')
 
         # Init output
@@ -290,7 +294,8 @@ class Pk(Spectrum):
             'k_max_tau0_over_l_max': 8,
             }
         # Get additional Class arguments needed to run smoothly
-        class_args = {n: self.class_args[n] for n in self.class_args if n not in high_prec}
+        class_args = {n: self.class_args[n] for n in self.class_args
+                      if n not in high_prec}
         class_args['output'] = 'mPk, dTk'
         class_args['P_k_max_h/Mpc'] = k.max()
         class_args['z_max_pk'] = max(z.max(), 0.1)
@@ -300,7 +305,8 @@ class Pk(Spectrum):
             if precision == 0:
                 prec = {}
             elif precision == 1:
-                prec = {n: self.class_args[n] for n in self.class_args if n in high_prec}
+                prec = {n: self.class_args[n] for n in self.class_args
+                        if n in high_prec}
             elif precision == 2:
                 prec = high_prec
             else:
@@ -315,7 +321,6 @@ class Pk(Spectrum):
         cosmo.set(params | class_args | prec)
         cosmo.compute()
 
-
         # convert k in units of 1/Mpc
         k = k * cosmo.h()
 
@@ -323,12 +328,12 @@ class Pk(Spectrum):
         if self.name.endswith('_m'):
             pk_out, k_out, z_out = cosmo.get_pk_and_k_and_z(
                 nonlinear=False,
-                only_clustering_species = False,
+                only_clustering_species=False,
                 h_units=False)
         elif self.name.endswith('_cb'):
             pk_out, k_out, z_out = cosmo.get_pk_and_k_and_z(
                 nonlinear=False,
-                only_clustering_species = True,
+                only_clustering_species=True,
                 h_units=False)
         elif self.name.endswith('_weyl'):
             pk_out, k_out, z_out = cosmo.get_Weyl_pk_and_k_and_z(
@@ -351,7 +356,7 @@ class Pk(Spectrum):
             return fk
 
 
-# ------------------- Cell -----------------------------------------------------#
+# ------------------- Cell ---------------------------------------------------#
 
 class Cell(Spectrum):
 
@@ -359,7 +364,7 @@ class Cell(Spectrum):
         Spectrum.__init__(self, **kwargs)
         # Init specific attributes
         self.has_ell = True
-        self.ell_array=kwargs['ell_array']
+        self.ell_array = kwargs['ell_array']
 
         # Placeholders
         self.ell_stored = None
@@ -375,7 +380,8 @@ class Cell(Spectrum):
         high = self.ell_array.max()
         if ell.min() < low or ell.max() > high:
             raise Exception(
-                'ell = [{} - {}] out of range [{} - {}]'.format(ell.min(), ell.max(), low, high))
+                'ell = [{} - {}] out of range [{} - {}]'.format(
+                    ell.min(), ell.max(), low, high))
         return
 
     def _to_numpy_array(self, x):
@@ -416,7 +422,8 @@ class Cell(Spectrum):
                 self.ref_stored = self.ref[self.ell_stored_indices]
 
         # Prepare parameters list
-        params_emu = [params[name] if (name != 'z_pk') else 0. for name in self.x_names]
+        params_emu = [params[name] if (name != 'z_pk') else 0.
+                      for name in self.x_names]
 
         # Evaluate emulator
         out_emu = self._eval_emu(params_emu)[self.ell_stored_indices]
@@ -458,7 +465,8 @@ class Cell(Spectrum):
             'k_max_tau0_over_l_max': 8,
             }
         # Get additional Class arguments needed to run smoothly
-        class_args = {n: self.class_args[n] for n in self.class_args if n not in high_prec}
+        class_args = {n: self.class_args[n] for n in self.class_args
+                      if n not in high_prec}
         class_args['output'] = 'tCl, pCl, lCl'
         class_args['l_max_scalars'] = ell.max()
         class_args['lensing'] = 'yes'
@@ -468,7 +476,8 @@ class Cell(Spectrum):
             if precision == 0:
                 prec = {}
             elif precision == 1:
-                prec = {n: self.class_args[n] for n in self.class_args if n in high_prec}
+                prec = {n: self.class_args[n] for n in self.class_args
+                        if n in high_prec}
             elif precision == 2:
                 prec = high_prec
             else:

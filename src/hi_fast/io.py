@@ -218,7 +218,7 @@ class EmuFile(object):
         if not os.path.isdir(self.path):
             raise IOError('Folder {} does not exist!'.format(self.path))
         return
-    
+
     def _get_path(self, fname, root):
         """
         Merge together in a unique string fname and root. Arguments:
@@ -292,9 +292,11 @@ def timeit(func):
             start = time.time()
         result = func(*args,  **kwargs)
         if verbose and dotimeit:
-            print_level(1, '{} executed in {} seconds'.format(func, time.time()-start))
+            print_level(1, '{} executed in {} seconds'.format(
+                func, time.time()-start))
         return result
     return wrapper_function
+
 
 def write_red(msg):
     return '\033[1;31m{}\033[00m'.format(msg)
