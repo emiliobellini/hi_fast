@@ -18,9 +18,9 @@ class Spectrum(object):
         self.x_pca = kwargs['x_pca']
         self.y_pca = kwargs['y_pca']
         self.model = kwargs['model']
+        self.class_ref = kwargs['class_ref']
         self.class_vars = kwargs['class_vars']
         self.class_args = kwargs['class_args']
-        self.params_cosmo = [x for x in self.x_names if x != 'z_pk']
         if np.all(kwargs['ref'] == 1):
             self.ref = None
         else:
@@ -29,6 +29,26 @@ class Spectrum(object):
         # Placeholders
         self.has_k_and_z = False
         self.has_ell = False
+
+        # Define high precision parameters for Class
+        self.high_prec = {
+            'k_per_decade_for_pk': 1000,
+            'k_per_decade_for_bao': 2000,
+            'l_logstep': 1.026,
+            'l_linstep': 25,
+            'perturbations_sampling_stepsize': 0.01,
+            'l_switch_limber': 20,
+            'accurate_lensing': 1,
+            'delta_l_max': 1000,
+            'k_max_tau0_over_l_max': 8,
+            }
+
+        # Derived cosmological parameters
+        self.derived_cosmo_params = [
+            # new param, base param, conversion function
+            ('A_s', 'ln_A_s_1e10', lambda A_s: np.log(A_s*1e10)),
+            ('sigma_8', 'ln_A_s_1e10', lambda A_s: 0.8),  # TODO: implement
+        ]
         pass
 
     def _to_numpy_array(self, x):
@@ -45,10 +65,13 @@ class Spectrum(object):
         Check that the parameters passed are
         exactly those expected.
         """
-        if set(list(params.keys())) != set(self.params_cosmo):
+
+        list_params = list(params.keys())
+        list_params.sort()
+        if list_params != self.cosmo_params:
             raise Exception(
                 'I expected parameters {}, and I got {}!'
-                ''.format(self.x_names, params.keys()))
+                ''.format(self.x_names, list_params))
         return
 
     def _check_param_values(self, params):
@@ -56,6 +79,8 @@ class Spectrum(object):
         Check that the parameters are within the emulator range.
         """
         for name in params:
+            if name not in self.class_vars:
+                continue
             low = self.class_vars[name]['prior']['min']
             high = self.class_vars[name]['prior']['max']
             in_range = low <= params[name] <= high
@@ -64,6 +89,17 @@ class Spectrum(object):
                     'Parameter {} = {} out of range [{} - {}]'
                     ''.format(name, params[name], low, high))
         return
+
+    def _convert_cosmo_params(self, params):
+        """
+        Convert cosmological parameters if needed.
+        """
+
+        for new, base, func in self.derived_cosmo_params:
+            if base not in params and new in params:
+                params[base] = func(params[new])
+                params.pop(new)
+        return params
 
     def _is_same_array(self, x, x_ref):
         """
@@ -91,7 +127,7 @@ class Spectrum(object):
         if kwargs['name'].startswith('pk_'):
             return Pk(**kwargs)
         # Growth rates
-        elif kwargs['name'].startswith('f_'):
+        elif kwargs['name'].startswith('fk_'):
             return Pk(**kwargs)
         # Cl
         elif kwargs['name'].startswith('cl_'):
@@ -152,10 +188,17 @@ class Pk(Spectrum):
         self.z_array = kwargs['z_array']
         self.k_array = kwargs['k_array']
 
+        # Define cosmological parameters
+        self.cosmo_params = [name for name in self.x_names
+                             if name != 'z_pk']
+        self.cosmo_params += ['ln_A_s_1e10', 'n_s']
+        self.cosmo_params.sort()
+
         # Placeholders
         self.k_stored = None
         self.z_stored = None
         self.ref_stored = None
+
         pass
 
     def _check_k_values(self, k):
@@ -182,6 +225,24 @@ class Pk(Spectrum):
                     z.min(), z.max(), low, high))
         return
 
+    def _get_primordial_pk(self, ln_A_s_1e10, n_s, k_pivot, k):
+        """
+        Get primordial power spectrum at given k.
+        Arguments:
+        - ln_A_s_1e10 (float): log amplitude of primordial spectrum;
+        - n_s (float): spectral index;
+        - k_pivot (float): pivot scale in h/Mpc;
+        - k (array): wavenumbers in h/Mpc.
+        Returns:
+        - P_primordial (array): primordial power spectrum at k.
+        """
+
+        A_s = np.exp(ln_A_s_1e10) / 1e10
+        P_primordial = A_s * (k / k_pivot)**(n_s - 1.)
+        P_primordial = A_s * np.exp((n_s-1.)*np.log(k/k_pivot))
+
+        return P_primordial
+
     def get(self, k, z, params):
         """
         Main method to get the power spectrum P(k, z) or the
@@ -197,6 +258,9 @@ class Pk(Spectrum):
         is not need to interpolate the reference spectra (for the
         spectra we emulate the ratio) again.
         """
+
+        # Convert cosmological parameters to those used internally
+        params = self._convert_cosmo_params(params)
 
         # Check parameters
         # 1) Parameter names: no missing and not unrecognized
@@ -218,7 +282,7 @@ class Pk(Spectrum):
         same_z = self._is_same_array(z, self.z_stored)
         # 2) is inside the emulated ranges?
         if not same_z:
-            self._check_z_values(k)
+            self._check_z_values(z)
 
         # If z or k changed, reinterpolate reference
         if not same_k or not same_z:
@@ -253,6 +317,24 @@ class Pk(Spectrum):
         else:
             out = out_emu
 
+        # Adjust shape with primordial Pk
+        if self.name.startswith('pk_'):
+            ref_primordial = self._get_primordial_pk(
+                self.class_args['ln_A_s_1e10'],
+                self.class_args['n_s'],
+                self.class_args['k_pivot'],
+                self.k_stored*self.class_ref['h'])
+            if 'k_pivot' in params:
+                k_pivot = params['k_pivot']
+            else:
+                k_pivot = self.class_args['k_pivot']
+            primordial = self._get_primordial_pk(
+                params['ln_A_s_1e10'],
+                params['n_s'],
+                k_pivot,
+                self.k_stored*params['h'])
+            out *= primordial[:, np.newaxis] / ref_primordial[:, np.newaxis]
+
         return out
 
     def get_from_class(self, k, z, params, precision=0):
@@ -281,22 +363,10 @@ class Pk(Spectrum):
         k = self._to_numpy_array(k)
         z = self._to_numpy_array(z)
 
-        # Define high precision parameters
-        high_prec = {
-            'k_per_decade_for_pk': 1000,
-            'k_per_decade_for_bao': 2000,
-            'l_logstep': 1.026,
-            'l_linstep': 25,
-            'perturbations_sampling_stepsize': 0.01,
-            'l_switch_limber': 20,
-            'accurate_lensing': 1,
-            'delta_l_max': 1000,
-            'k_max_tau0_over_l_max': 8,
-            }
         # Get additional Class arguments needed to run smoothly
         class_args = {n: self.class_args[n] for n in self.class_args
-                      if n not in high_prec}
-        class_args['output'] = 'mPk, dTk'
+                      if n not in self.high_prec}
+        class_args['output'] = 'tCl, pCl, lCl, mPk, dTk'
         class_args['P_k_max_h/Mpc'] = k.max()
         class_args['z_max_pk'] = max(z.max(), 0.1)
 
@@ -306,9 +376,9 @@ class Pk(Spectrum):
                 prec = {}
             elif precision == 1:
                 prec = {n: self.class_args[n] for n in self.class_args
-                        if n in high_prec}
+                        if n in self.high_prec}
             elif precision == 2:
-                prec = high_prec
+                prec = self.high_prec
             else:
                 raise Exception('precision can be 0, 1, 2 or a dictionary!')
         elif isinstance(precision, dict):
@@ -317,8 +387,10 @@ class Pk(Spectrum):
             raise Exception('precision can be 0, 1, 2 or a dictionary!')
 
         # Compute
+        all_params = class_args | prec | params
+        # all_params.pop('YHe', None)
         cosmo = classy.Class()
-        cosmo.set(params | class_args | prec)
+        cosmo.set(all_params)
         cosmo.compute()
 
         # convert k in units of 1/Mpc
@@ -349,7 +421,7 @@ class Pk(Spectrum):
         if self.name.startswith('pk_'):
             # The output is in units Mpc**3 and I want (Mpc/h)**3.
             return pk*cosmo.h()**3.
-        elif self.name.startswith('f_'):
+        elif self.name.startswith('fk_'):
             # Calculate derivative if growth rate f
             dpkdz = interp.make_splrep(z_out, pk_out.T, s=0).derivative()(z).T
             fk = -0.5 * (1+z) * dpkdz/pk
@@ -365,6 +437,10 @@ class Cell(Spectrum):
         # Init specific attributes
         self.has_ell = True
         self.ell_array = kwargs['ell_array']
+
+        # Define cosmological parameters
+        self.cosmo_params = self.x_names.copy()
+        self.cosmo_params.sort()
 
         # Placeholders
         self.ell_stored = None
@@ -395,6 +471,9 @@ class Cell(Spectrum):
         - ell (float, list or array): single/list of wavenumbers;
         - params (dict): dictionary with the cosmo parameters.
         """
+
+        # Convert cosmological parameters to those used internally
+        params = self._convert_cosmo_params(params)
 
         # Check parameters
         # 1) Parameter names: no missing and not unrecognized
@@ -452,22 +531,10 @@ class Cell(Spectrum):
 
         ell = self._to_numpy_array(ell)
 
-        # Define high precision parameters
-        high_prec = {
-            'k_per_decade_for_pk': 1000,
-            'k_per_decade_for_bao': 2000,
-            'l_logstep': 1.026,
-            'l_linstep': 25,
-            'perturbations_sampling_stepsize': 0.01,
-            'l_switch_limber': 20,
-            'accurate_lensing': 1,
-            'delta_l_max': 1000,
-            'k_max_tau0_over_l_max': 8,
-            }
         # Get additional Class arguments needed to run smoothly
         class_args = {n: self.class_args[n] for n in self.class_args
-                      if n not in high_prec}
-        class_args['output'] = 'tCl, pCl, lCl'
+                      if n not in self.high_prec}
+        class_args['output'] = 'tCl, pCl, lCl, mPk, dTk'
         class_args['l_max_scalars'] = ell.max()
         class_args['lensing'] = 'yes'
 
@@ -477,9 +544,9 @@ class Cell(Spectrum):
                 prec = {}
             elif precision == 1:
                 prec = {n: self.class_args[n] for n in self.class_args
-                        if n in high_prec}
+                        if n in self.high_prec}
             elif precision == 2:
-                prec = high_prec
+                prec = self.high_prec
             else:
                 raise Exception('precision can be 0, 1, 2 or a dictionary!')
         elif isinstance(precision, dict):

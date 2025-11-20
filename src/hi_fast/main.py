@@ -19,12 +19,12 @@ class HiFast(object):
         self.root = root
         self._emu = {}
         if name is not None:
-            self.load(name, root=self.root, timeit=timeit, verbose=verbose)
+            self._load(name, root=self.root, timeit=timeit, verbose=verbose)
 
         pass
 
     @io.timeit
-    def load(self, name, root=None, timeit=False, verbose=False):
+    def _load(self, name, root=None, timeit=False, verbose=False):
         """
         Load all emulators. Arguments:
         - name (str, default: None): name of the model to load. If None
@@ -40,11 +40,40 @@ class HiFast(object):
         for file in io.Folder(name, root=root).list_files():
             # Read content emu
             emufile = io.EmuFile(file)
+
+            # Check that it is a dictionary file
+            if emufile._is_dict_file() is False:
+                continue
+            # Load content
             content = emufile.load()
             # Store content
             self._emu[content['name']] = sp.Spectrum.choose_one(**content)
         if verbose:
             io.info('Loaded emulators for {} model'.format(name))
+        return
+
+    def print_cosmo_params(self):
+        """
+        Print the cosmological parameters required by HiFast.
+        """
+
+        ref_emu = self._emu[list(self._emu.keys())[0]]
+
+        for spectrum in self._emu.values():
+            # Check that all spectra have the same cosmological params
+            if spectrum.cosmo_params != ref_emu.cosmo_params:
+                raise ValueError(
+                    'Different cosmological parameters for different '
+                    'spectra emulators')
+
+        io.info('Cosmological parameters:')
+        for param in ref_emu.cosmo_params:
+            if param in ref_emu.derived_cosmo_params:
+                derived_params = list(ref_emu.derived_cosmo_params[param])
+                io.print_level(1, '{} (can be derived from: {})'.format(
+                    param, ', '.join(derived_params)))
+            else:
+                io.print_level(1, '{}'.format(param))
         return
 
     @io.timeit
@@ -128,7 +157,7 @@ class HiFast(object):
             raise ValueError('Nonlinear Pk not yet implemented')
 
         # Select correct emu
-        emu = self._emu['f_{}'.format(name)]
+        emu = self._emu['fk_{}'.format(name)]
 
         # Get output
         out = emu.get(k, z, params)
@@ -145,7 +174,13 @@ class HiFast(object):
         return out
 
     @io.timeit
-    def get_cell(self, ell, params, name='TT', squeeze=False, timeit=False):
+    def get_cell(
+            self,
+            ell,
+            params,
+            name='TT',
+            squeeze=False,
+            timeit=False):
         """
         Main method to get the Cell at some ell. As in Class,
         we emulate the dimensionless Cell using:
@@ -282,7 +317,7 @@ class HiFast(object):
             raise ValueError('Nonlinear Pk not yet implemented')
 
         # Select correct emu
-        emu = self._emu['f_{}'.format(name)]
+        emu = self._emu['fk_{}'.format(name)]
 
         # Get output
         out = emu.get_from_class(k, z, params, precision=precision)

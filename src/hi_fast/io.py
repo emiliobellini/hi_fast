@@ -10,6 +10,8 @@ import joblib
 import os
 import re
 import time
+from pickle import UnpicklingError
+from tensorflow import keras
 
 
 # ------------------- Folder -------------------------------------------------#
@@ -174,7 +176,7 @@ class Folder(object):
         return path
 
 
-# ------------------- Folder -------------------------------------------------#
+# ------------------- EmuFile ------------------------------------------------#
 
 class EmuFile(object):
     """
@@ -249,18 +251,18 @@ class EmuFile(object):
                 'It can be a string or a Folder object!')
         return path
 
-    def save(self, content, fname=None, root=None, verbose=False):
+    def _is_dict_file(self):
         """
-        Save content to file.
+        Check if the file contains a dictionary.
         """
-        # Get path
-        path = self._get_path(fname, root)
-
-        joblib.dump(content, path)
-
-        if verbose:
-            info('Saved emulator info at {}'.format(path))
-        return
+        try:
+            content = joblib.load(self.path)
+        except UnpicklingError:
+            return False
+        if isinstance(content, dict):
+            return True
+        else:
+            return False
 
     def load(self, fname=None, root=None, verbose=False):
         """
@@ -270,6 +272,16 @@ class EmuFile(object):
         path = self._get_path(fname, root)
 
         self.content = joblib.load(path)
+
+        # Load keras model if any
+        if 'model_path' in self.content.keys():
+            model_path = os.path.join(
+                os.path.dirname(path), self.content['model_path'])
+            self.content['model'] = keras.models.load_model(
+                model_path, compile=False)
+
+        # Remove model_path from content
+        self.content.pop('model_path', None)
 
         if verbose:
             info('Loaded emulator info from {}'.format(path))
