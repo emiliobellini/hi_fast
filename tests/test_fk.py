@@ -100,5 +100,5 @@ for spectrum in ['fk_m', 'fk_cb', 'fk_weyl']:
     plt.yscale('log')
     plt.legend()
     plt.tight_layout()
-    plt.savefig('output/test_fk_{}.pdf'.format(spectrum))
+    plt.savefig('output/test_{}.pdf'.format(spectrum))
     plt.close()

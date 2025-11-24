@@ -592,7 +592,7 @@ class Fk(Pk):
 
         # Evaluate pk at the requested range
         pk = interp.make_splrep(k_array, pk_array, s=0)(k)
-        pk_at_z = interp.make_splrep(z_array, pk_array.T, s=0)(z)
+        pk_at_z = interp.make_splrep(z_array, pk.T, s=0)(z).T
         dpkdz = interp.make_splrep(z_array, pk.T, s=0).derivative()(z).T
 
         out = -0.5 * (1+z) * dpkdz/pk_at_z
