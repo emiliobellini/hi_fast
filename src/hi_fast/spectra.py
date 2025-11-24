@@ -128,7 +128,7 @@ class Spectrum(object):
             return Pk(**kwargs)
         # Growth rates
         elif kwargs['name'].startswith('fk_'):
-            return Pk(**kwargs)
+            return Fk(**kwargs)
         # Cl
         elif kwargs['name'].startswith('cl_'):
             return Cell(**kwargs)
@@ -243,7 +243,71 @@ class Pk(Spectrum):
 
         return P_primordial
 
-    def get(self, k, z, params):
+    def _get_weyl_pk(self, k, z, n_k, n_z, n_mu):
+        """
+        Get nonlinear Weyl power spectrum from Class.
+        Arguments:
+        - k (array): wavenumbers in 1/Mpc. To be consistent with
+          the other calls, it has to be 3D;
+        - z (array): redshifts;
+        - n_k (int): number of k values;
+        - n_z (int): number of z values;
+        - n_mu (int): number of mu values.
+        Returns:
+        - P_weyl (array): Weyl power spectrum at k and z.
+        """
+        pk_array, k_array, z_array = self.cosmo.get_Weyl_pk_and_k_and_z(
+            nonlinear=True,
+            h_units=False
+        )
+
+        # Adjust units
+        k_array /= self.cosmo.h()
+        pk_array *= self.cosmo.h()**3.
+
+        # Flip z_array (for the interpolation it has to be increasing)
+        z_array = np.flip(z_array)
+        pk_array = np.flip(pk_array, axis=1)
+
+        # Evaluate pk at the requested range
+        pk = np.zeros((n_k, n_z, n_mu))
+        pk_int = interp.make_splrep(k_array, pk_array, s=0)(k[:, 0, 0])
+        for nzval, zval in enumerate(z):
+            print(interp.make_splrep(z_array, pk_int.T, s=0)(zval).shape)
+            pk[:, nzval] = interp.make_splrep(z_array, pk_int.T, s=0)(zval)
+
+        return pk
+
+    def _get_weyl_pk_lin(self, k, z, n_k, n_z, n_mu):
+        """
+        Get linear Weyl power spectrum from Class.
+        Arguments:
+        - k (array): wavenumbers in 1/Mpc;
+        - z (array): redshifts;
+        - n_k (int): number of k values;
+        - n_z (int): number of z values;
+        - n_mu (int): number of mu values.
+        Returns:
+        - P_weyl (array): Weyl power spectrum at k and z.
+        """
+        pk_array, k_array, z_array = self.cosmo.get_Weyl_pk_and_k_and_z(
+            nonlinear=False,
+            h_units=False
+        )
+
+        # Flip z_array (for the interpolation it has to be increasing)
+        z_array = np.flip(z_array)
+        pk_array = np.flip(pk_array, axis=1)
+
+        # Evaluate pk at the requested range
+        pk = np.zeros((n_k, n_z, n_mu))
+        pk_int = interp.make_splrep(k_array, pk_array, s=0)(k[:, 0, 0])
+        for nzval, zval in enumerate(z):
+            pk[:, nzval, 0] = interp.make_splrep(z_array, pk_int.T, s=0)(zval)
+
+        return pk
+
+    def get(self, k, z, params, nonlinear=False):
         """
         Main method to get the power spectrum P(k, z) or the
         growth rate f(k, z) = dln P(k, z)/dln a at some z and k.
@@ -253,11 +317,11 @@ class Pk(Spectrum):
         - params (dict): dictionary with the cosmo parameters.
 
         NOTE: k is in units of h/Mpc. P(k, z) is in units of (Mpc/h)^3.
-        NOTE: If k and z remains unchanged, i.e. we are varying only
-        the parameters, the computation is much faster, since there
-        is not need to interpolate the reference spectra (for the
-        spectra we emulate the ratio) again.
         """
+
+        # TODO: implement nonlinear
+        if nonlinear:
+            raise ValueError('Nonlinear Pk not yet implemented')
 
         # Convert cosmological parameters to those used internally
         params = self._convert_cosmo_params(params)
@@ -337,7 +401,7 @@ class Pk(Spectrum):
 
         return out
 
-    def get_from_class(self, k, z, params, precision=0):
+    def get_from_class(self, k, z, params, nonlinear=False, precision=0):
         """
         Main method to get the power spectrum P(k, z) or the
         growth rate f(k, z) = dln P(k, z)/dln a at some z and k
@@ -359,6 +423,10 @@ class Pk(Spectrum):
         is not need to interpolate the reference spectra (for the
         spectra we emulate the ratio) again.
         """
+
+        # TODO: implement nonlinear
+        if nonlinear:
+            raise ValueError('Nonlinear Pk not yet implemented')
 
         k = self._to_numpy_array(k)
         z = self._to_numpy_array(z)
@@ -388,44 +456,147 @@ class Pk(Spectrum):
 
         # Compute
         all_params = class_args | prec | params
-        # all_params.pop('YHe', None)
-        cosmo = classy.Class()
-        cosmo.set(all_params)
-        cosmo.compute()
-
-        # convert k in units of 1/Mpc
-        k = k * cosmo.h()
+        self.cosmo = classy.Class()
+        self.cosmo.set(all_params)
+        self.cosmo.compute()
 
         # Get correct spectrum
-        if self.name.endswith('_m'):
-            pk_out, k_out, z_out = cosmo.get_pk_and_k_and_z(
-                nonlinear=False,
-                only_clustering_species=False,
-                h_units=False)
-        elif self.name.endswith('_cb'):
-            pk_out, k_out, z_out = cosmo.get_pk_and_k_and_z(
-                nonlinear=False,
+        if nonlinear is True and self.name.endswith('_cb'):
+            fun = self.cosmo.get_pk_cb
+        elif nonlinear is True and self.name.endswith('_m'):
+            fun = self.cosmo.get_pk
+        elif nonlinear is True and self.name.endswith('_weyl'):
+            fun = self._get_weyl_pk
+        elif nonlinear is False and self.name.endswith('_cb'):
+            fun = self.cosmo.get_pk_cb_lin
+        elif nonlinear is False and self.name.endswith('_m'):
+            fun = self.cosmo.get_pk_lin
+        elif nonlinear is False and self.name.endswith('_weyl'):
+            fun = self._get_weyl_pk_lin
+
+        # convert k in units of 1/Mpc
+        n_mu = 1
+        n_z = len(z)
+        n_k = len(k)
+        k_3D = np.broadcast_to(
+            k[:, np.newaxis, np.newaxis], (n_k, n_z, n_mu)) * self.cosmo.h()
+        out = fun(k_3D, z, n_k, n_z, n_mu) * self.cosmo.h()**3.
+        out = out[:, :, 0]
+
+        return out
+
+
+# ------------------- Pk -----------------------------------------------------#
+
+class Fk(Pk):
+
+    def __init__(self, **kwargs):
+        Pk.__init__(self, **kwargs)
+        pass
+
+    def get(self, k, z, params, nonlinear=False):
+        """
+        Main method to get the growth rate f(k, z) = dln P(k, z)/dln a
+        at some z and k. Arguments:
+        - k (float, list or array): single/list of wavenumbers;
+        - z (float, list or array): single/list of redshift;
+        - params (dict): dictionary with the cosmo parameters.
+
+        NOTE: k is in units of h/Mpc.
+        NOTE: If k and z remains unchanged, i.e. we are varying only
+        the parameters, the computation is much faster, since there
+        is not need to interpolate the reference spectra (for the
+        spectra we emulate the ratio) again.
+        """
+
+        out = Pk.get(self, k, z, params, nonlinear=nonlinear)
+
+        return out
+
+    def get_from_class(self, k, z, params, nonlinear=False, precision=0):
+        """
+        Main method to get the power spectrum P(k, z) or the
+        growth rate f(k, z) = dln P(k, z)/dln a at some z and k
+        from Class.
+        Arguments:
+        - k (float, list or array): single/list of wavenumbers;
+        - z (float, list or array): single/list of redshift;
+        - params (dict): dictionary with the cosmo parameters;
+        - precision (0, 1, 2, or dict): for default precisions use:
+            - 0: standard class precision;
+            - 1: precision parameters used for this emulator;
+            - 2: high precision parameters.
+          Eitherwise, it is possible to pass directly a
+          dictionary of precision parameters.
+
+        NOTE: k is in units of h/Mpc. P(k, z) is in units of (Mpc/h)^3.
+        """
+
+        # TODO: implement nonlinear
+        if nonlinear:
+            raise ValueError('Nonlinear Pk not yet implemented')
+
+        k = self._to_numpy_array(k)
+        z = self._to_numpy_array(z)
+
+        # Get additional Class arguments needed to run smoothly
+        class_args = {n: self.class_args[n] for n in self.class_args
+                      if n not in self.high_prec}
+        class_args['output'] = 'tCl, pCl, lCl, mPk, dTk'
+        class_args['P_k_max_h/Mpc'] = k.max()
+        class_args['z_max_pk'] = max(z.max(), 0.1)
+
+        # Fix precision parameters
+        if isinstance(precision, int):
+            if precision == 0:
+                prec = {}
+            elif precision == 1:
+                prec = {n: self.class_args[n] for n in self.class_args
+                        if n in self.high_prec}
+            elif precision == 2:
+                prec = self.high_prec
+            else:
+                raise Exception('precision can be 0, 1, 2 or a dictionary!')
+        elif isinstance(precision, dict):
+            prec = precision
+        else:
+            raise Exception('precision can be 0, 1, 2 or a dictionary!')
+
+        # Compute
+        all_params = class_args | prec | params
+        self.cosmo = classy.Class()
+        self.cosmo.set(all_params)
+        self.cosmo.compute()
+
+        # Get correct spectrum
+        if self.name.endswith('_cb'):
+            pk_array, k_array, z_array = self.cosmo.get_pk_and_k_and_z(
+                nonlinear=nonlinear,
                 only_clustering_species=True,
                 h_units=False)
+        elif self.name.endswith('_m'):
+            pk_array, k_array, z_array = self.cosmo.get_pk_and_k_and_z(
+                nonlinear=nonlinear,
+                only_clustering_species=False,
+                h_units=False)
         elif self.name.endswith('_weyl'):
-            pk_out, k_out, z_out = cosmo.get_Weyl_pk_and_k_and_z(
-                nonlinear=False,
+            pk_array, k_array, z_array = self.cosmo.get_Weyl_pk_and_k_and_z(
+                nonlinear=nonlinear,
                 h_units=False)
 
         # Flip z_array (for the interpolation it has to be increasing)
-        z_out = np.flip(z_out)
-        pk_out = np.flip(pk_out, axis=1)
-        pk_out = interp.make_splrep(k_out, pk_out, s=0)(k)
-        pk = interp.make_splrep(z_out, pk_out.T, s=0)(z).T
+        z_array = np.flip(z_array)
+        pk_array = np.flip(pk_array, axis=1)
 
-        if self.name.startswith('pk_'):
-            # The output is in units Mpc**3 and I want (Mpc/h)**3.
-            return pk*cosmo.h()**3.
-        elif self.name.startswith('fk_'):
-            # Calculate derivative if growth rate f
-            dpkdz = interp.make_splrep(z_out, pk_out.T, s=0).derivative()(z).T
-            fk = -0.5 * (1+z) * dpkdz/pk
-            return fk
+        k_array /= self.cosmo.h()
+
+        # Evaluate pk at the requested range
+        pk = interp.make_splrep(k_array, pk_array, s=0)(k)
+        pk_at_z = interp.make_splrep(z_array, pk_array.T, s=0)(z)
+        dpkdz = interp.make_splrep(z_array, pk.T, s=0).derivative()(z).T
+
+        out = -0.5 * (1+z) * dpkdz/pk_at_z
+        return out
 
 
 # ------------------- Cell ---------------------------------------------------#
@@ -555,16 +726,16 @@ class Cell(Spectrum):
             raise Exception('precision can be 0, 1, 2 or a dictionary!')
 
         # Compute
-        cosmo = classy.Class()
-        cosmo.set(params | class_args | prec)
-        cosmo.compute()
+        self.cosmo = classy.Class()
+        self.cosmo.set(params | class_args | prec)
+        self.cosmo.compute()
 
         # Get Cells
         cl_type = self.name.split('_')[1].lower()
         try:
-            out = cosmo.lensed_cl(lmax=ell.max())[cl_type]
+            out = self.cosmo.lensed_cl(lmax=ell.max())[cl_type]
         except KeyError:
-            out = cosmo.raw_cl(lmax=ell.max())[cl_type]
+            out = self.cosmo.raw_cl(lmax=ell.max())[cl_type]
 
         # Mask Cells
         ell_out = np.arange(ell.max()+1)

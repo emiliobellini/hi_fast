@@ -15,9 +15,9 @@ cosmo = HiFast(
 # Index to plot
 idx_data = 1
 
-for spectrum in ['pk_m', 'pk_cb', 'pk_weyl']:
+for spectrum in ['fk_m', 'fk_cb', 'fk_weyl']:
 
-    # Load reference Pk from file
+    # Load reference fk from file
     fits = io.FitsFile(
         '/ceph/hpc/data/s25r06-05-users/old/lcdm/pk_100_thin.fits')
     x_data = fits.get_data('x_data')[idx_data]
@@ -34,12 +34,12 @@ for spectrum in ['pk_m', 'pk_cb', 'pk_weyl']:
     ref_k = fits.get_data('k_range_{}'.format(spectrum))
     ref_z = fits.get_data('z_array')
 
-    pk_over_pk_ref = fits.get_data(spectrum)[idx_data]
-    ref_pk = interp.make_splrep(
+    fk_over_fk_ref = fits.get_data(spectrum)[idx_data]
+    ref_fk = interp.make_splrep(
         ref_z, fits.get_data('ref_{}'.format(spectrum))[0].T, s=0)(z)
-    pk_data = ref_pk * pk_over_pk_ref
+    fk_data = ref_fk * fk_over_fk_ref
 
-    pk_emu = cosmo.get_pk(
+    fk_emu = cosmo.get_fk(
         ref_k,
         z,
         params,
@@ -48,7 +48,7 @@ for spectrum in ['pk_m', 'pk_cb', 'pk_weyl']:
         nonlinear=False,
         timeit=True)
 
-    pk_class_0 = cosmo.get_pk_from_class(
+    fk_class_0 = cosmo.get_fk_from_class(
         ref_k,
         z,
         params,
@@ -58,7 +58,7 @@ for spectrum in ['pk_m', 'pk_cb', 'pk_weyl']:
         nonlinear=False,
         timeit=True)
 
-    pk_class_1 = cosmo.get_pk_from_class(
+    fk_class_1 = cosmo.get_fk_from_class(
         ref_k,
         z,
         params,
@@ -68,7 +68,7 @@ for spectrum in ['pk_m', 'pk_cb', 'pk_weyl']:
         nonlinear=False,
         timeit=True)
 
-    pk_class_2 = cosmo.get_pk_from_class(
+    fk_class_2 = cosmo.get_fk_from_class(
         ref_k,
         z,
         params,
@@ -79,18 +79,18 @@ for spectrum in ['pk_m', 'pk_cb', 'pk_weyl']:
         timeit=True)
 
     # Plotting
-    plt.title('Test precision Pk {} at z={:.2f}'.format(spectrum, z))
+    plt.title('Test precision fk {} at z={:.2f}'.format(spectrum, z))
     plt.plot(ref_k,
-             np.abs(pk_emu[:, 0]/pk_data - 1.)*100.,
+             np.abs(fk_emu[:, 0]/fk_data - 1.)*100.,
              label='HiFast Emu/Data')
     plt.plot(ref_k,
-             np.abs(pk_class_0[:, 0]/pk_data - 1.)*100.,
+             np.abs(fk_class_0[:, 0]/fk_data - 1.)*100.,
              label='Class_0/Data')
     plt.plot(ref_k,
-             np.abs(pk_class_1[:, 0]/pk_data - 1.)*100.,
+             np.abs(fk_class_1[:, 0]/fk_data - 1.)*100.,
              label='Class_1/Data')
     plt.plot(ref_k,
-             np.abs(pk_class_2[:, 0]/pk_data - 1.)*100.,
+             np.abs(fk_class_2[:, 0]/fk_data - 1.)*100.,
              label='Class_2/Data')
     plt.axhline(0.1, c='k', lw=0.1)
 
@@ -100,5 +100,5 @@ for spectrum in ['pk_m', 'pk_cb', 'pk_weyl']:
     plt.yscale('log')
     plt.legend()
     plt.tight_layout()
-    plt.savefig('output/test_pk_{}.pdf'.format(spectrum))
+    plt.savefig('output/test_fk_{}.pdf'.format(spectrum))
     plt.close()
