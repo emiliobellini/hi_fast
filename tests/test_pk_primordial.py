@@ -8,7 +8,7 @@ cosmo = HiFast(
     root='/ceph/hpc/home/bellinie/hi_fast/output',
     timeit=True,
     verbose=True)
-# cosmo.print_cosmo_params()
+# cosmo.print_input_params()
 
 for spectrum in ['pk_m', 'pk_cb', 'pk_weyl']:
 

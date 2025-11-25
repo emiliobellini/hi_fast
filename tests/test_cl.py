@@ -9,7 +9,7 @@ cosmo = HiFast(
     root='/ceph/hpc/home/bellinie/hi_fast/output',
     timeit=True,
     verbose=True)
-# cosmo.print_cosmo_params()
+cosmo.print_input_params(spectrum='cl_TT_lensed')
 
 # Index to plot
 idx_data = 1

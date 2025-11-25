@@ -148,6 +148,31 @@ class Spectrum(object):
 
         return y
 
+    def print_input_params(self, level=0):
+
+        der_dict = {}
+        for base, der, _ in Params._conversion_rules(self):
+            if base in der_dict:
+                der_dict[base].append(der)
+            else:
+                der_dict[base] = [der]
+        for base in der_dict:
+            der_dict[base] = '(' + ', '.join(der_dict[base]) + ')'
+
+        msg = ''
+        for par in self.input_params_names:
+            if par in der_dict:
+                msg += '{} {}, '.format(par, der_dict[par])
+            else:
+                msg += '{}, '.format(par)
+
+        if level == 0:
+            io.info('Cosmological parameters ({}):'.format(self.name))
+            io.print_level(1, msg[:-2] + '.')
+        elif level == 1:
+            io.print_level(1, '{}. {}'.format(self.name, msg[:-2] + '.'))
+        return
+
 
 # ------------------- Pk -----------------------------------------------------#
 

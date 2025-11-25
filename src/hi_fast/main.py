@@ -52,28 +52,21 @@ class HiFast(object):
             io.info('Loaded emulators for {} model'.format(name))
         return
 
-    def print_cosmo_params(self):
+    def print_input_params(self, spectrum=None):
         """
         Print the cosmological parameters required by HiFast.
+        Arguments:
+        - spectrum (str, default: None): name of the spectrum
+            for which we want to print the input parameters. By
+            default it prints all the spectra.
         """
 
-        ref_emu = self._emu[list(self._emu.keys())[0]]
-
-        for spectrum in self._emu.values():
-            # Check that all spectra have the same cosmological params
-            if spectrum.cosmo_params != ref_emu.cosmo_params:
-                raise ValueError(
-                    'Different cosmological parameters for different '
-                    'spectra emulators')
-
-        io.info('Cosmological parameters:')
-        for param in ref_emu.cosmo_params:
-            if param in ref_emu.derived_cosmo_params:
-                derived_params = list(ref_emu.derived_cosmo_params[param])
-                io.print_level(1, '{} (can be derived from: {})'.format(
-                    param, ', '.join(derived_params)))
-            else:
-                io.print_level(1, '{}'.format(param))
+        if spectrum is not None:
+            self._emu[spectrum].print_input_params(level=0)
+        else:
+            io.info('Cosmological parameters:')
+            for spectrum in self._emu:
+                self._emu[spectrum].print_input_params(level=1)
         return
 
     @io.timeit
