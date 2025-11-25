@@ -27,8 +27,6 @@ for spectrum in ['fk_m', 'fk_cb', 'fk_weyl']:
         'Omega_m': x_data[2],
         'Omega_b': x_data[3],
         'tau_reio': x_data[4],
-        'ln_A_s_1e10': cosmo._emu[spectrum].class_args['ln_A_s_1e10'],
-        'n_s': cosmo._emu[spectrum].class_args['n_s'],
     }
 
     ref_k = fits.get_data('k_range_{}'.format(spectrum))

@@ -22,7 +22,7 @@ for spectrum in ['pk_m', 'pk_cb', 'pk_weyl']:
         'n_s': 0.966,
     }
 
-    ref_k = np.logspace(-4., np.log10(50.), num=600)
+    ref_k = np.logspace(-5., np.log10(50.), num=600)
 
     pk_emu_std = cosmo.get_pk(
         ref_k,

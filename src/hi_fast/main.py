@@ -1,5 +1,5 @@
-import hi_fast.io as io
-import hi_fast.spectra as sp
+from . import io as io
+from . import spectra as sp
 
 
 class HiFast(object):

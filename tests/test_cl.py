@@ -14,7 +14,8 @@ cosmo = HiFast(
 # Index to plot
 idx_data = 1
 
-for spectrum in ['cl_TT', 'cl_TE', 'cl_EE', 'cl_BB', 'cl_Tp', 'cl_pp']:
+# for spectrum in ['cl_TT', 'cl_TE', 'cl_EE', 'cl_BB', 'cl_Tp', 'cl_pp']:
+for spectrum in ['cl_EE']:
 
     # Load reference Pk from file
     fits = io.FitsFile(

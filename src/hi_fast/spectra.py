@@ -1,7 +1,8 @@
 import classy
 import numpy as np
 import scipy.interpolate as interp
-import hi_fast.io as io
+from . import io as io
+from .params import Params
 
 
 # ------------------- Spectrum -----------------------------------------------#
@@ -9,29 +10,36 @@ import hi_fast.io as io
 class Spectrum(object):
 
     def __init__(self, **kwargs):
-        # Init common attributes
+        # Name of the spectrum (str)
         self.name = kwargs['name']
+        # Parameters names needed by the emulator (list of str)
         self.x_names = kwargs['x_names']
+        # Placeholder for values needed by the emulator (list of floats)
+        self.x_values = [None for _ in self.x_names]
+        # Parameters ranges (list of list of floats)
         self.x_ranges = kwargs['x_ranges']
+        # Scalers used by the emulator. TODO: implement portability
         self.x_scaler = kwargs['x_scaler']
         self.y_scaler = kwargs['y_scaler']
+        # PCA used by the emulator. TODO: implement portability
         self.x_pca = kwargs['x_pca']
         self.y_pca = kwargs['y_pca']
+        # Emulator model
         self.model = kwargs['model']
-        self.class_ref = kwargs['class_ref']
-        self.class_vars = kwargs['class_vars']
+        # Dictionary for reference parameters and spectra. Keys:
+        # - params (dict): Class parameters used to calculate the spectrum
+        # - spectrum (array): reference spectrum, binned with
+        #     ref_k, ref_z or ref_ell
+        self.ref = {
+            'params': kwargs['ref_params'],
+            'spectrum': None if np.all(
+                kwargs['ref_spectrum'] == 1) else kwargs['ref_spectrum'],
+        }
+        # Arguments used by Class to generate the training/validation datasets
         self.class_args = kwargs['class_args']
-        if np.all(kwargs['ref'] == 1):
-            self.ref = None
-        else:
-            self.ref = kwargs['ref']
-
-        # Placeholders
-        self.has_k_and_z = False
-        self.has_ell = False
 
         # Define high precision parameters for Class
-        self.high_prec = {
+        self.class_high_prec = {
             'k_per_decade_for_pk': 1000,
             'k_per_decade_for_bao': 2000,
             'l_logstep': 1.026,
@@ -43,12 +51,17 @@ class Spectrum(object):
             'k_max_tau0_over_l_max': 8,
             }
 
-        # Derived cosmological parameters
-        self.derived_cosmo_params = [
-            # new param, base param, conversion function
-            ('A_s', 'ln_A_s_1e10', lambda A_s: np.log(A_s*1e10)),
-            ('sigma_8', 'ln_A_s_1e10', lambda A_s: 0.8),  # TODO: implement
-        ]
+        # Placeholder for input parameters (list). These are the parameters
+        # that the user should provide in order to correctly evaluate the
+        # spectrum. Not all the parameters used by the emulator go here (e.g.
+        # z_pk, which is given as an argument of the Spectrum.get method). In
+        # addition, tt contains the parameters that are used by external
+        # routines (e.g. ln_A_s_1e10, n_s, k_pivot to calculate the primordial
+        # power spectrum). Check the params.Params.add_defaults method to
+        # verify which are the ones that are not strictly necessary as a
+        # default value has been specified.
+        self.input_params_names = []
+
         pass
 
     def _to_numpy_array(self, x):
@@ -59,47 +72,6 @@ class Spectrum(object):
         elif isinstance(x, list):
             x = np.array(x)
         return x
-
-    def _check_param_names(self, params):
-        """
-        Check that the parameters passed are
-        exactly those expected.
-        """
-
-        list_params = list(params.keys())
-        list_params.sort()
-        if list_params != self.cosmo_params:
-            raise Exception(
-                'I expected parameters {}, and I got {}!'
-                ''.format(self.x_names, list_params))
-        return
-
-    def _check_param_values(self, params):
-        """
-        Check that the parameters are within the emulator range.
-        """
-        for name in params:
-            if name not in self.class_vars:
-                continue
-            low = self.class_vars[name]['prior']['min']
-            high = self.class_vars[name]['prior']['max']
-            in_range = low <= params[name] <= high
-            if not in_range:
-                raise Exception(
-                    'Parameter {} = {} out of range [{} - {}]'
-                    ''.format(name, params[name], low, high))
-        return
-
-    def _convert_cosmo_params(self, params):
-        """
-        Convert cosmological parameters if needed.
-        """
-
-        for new, base, func in self.derived_cosmo_params:
-            if base not in params and new in params:
-                params[base] = func(params[new])
-                params.pop(new)
-        return params
 
     def _is_same_array(self, x, x_ref):
         """
@@ -183,21 +155,29 @@ class Pk(Spectrum):
 
     def __init__(self, **kwargs):
         Spectrum.__init__(self, **kwargs)
-        # Init specific attributes
-        self.has_k_and_z = True
-        self.z_array = kwargs['z_array']
-        self.k_array = kwargs['k_array']
 
-        # Define cosmological parameters
-        self.cosmo_params = [name for name in self.x_names
-                             if name != 'z_pk']
-        self.cosmo_params += ['ln_A_s_1e10', 'n_s']
-        self.cosmo_params.sort()
+        # Input parameters (primordial power spectrum)
+        self.input_params_names = [nm for nm in self.x_names if nm != 'z_pk']
+        self.input_params_names += ['ln_A_s_1e10', 'n_s', 'k_pivot']
 
-        # Placeholders
-        self.k_stored = None
-        self.z_stored = None
-        self.ref_stored = None
+        # Add ref_z and ref_k to ref dictionary
+        self.ref['z'] = kwargs['ref_z']
+        self.ref['k'] = kwargs['ref_k']
+
+        # Store min and max
+        self.k_min = np.min(self.ref['k'])
+        self.k_max = np.max(self.ref['k'])
+        idx_z_pk = self.x_names.index('z_pk')
+        self.z_min, self.z_max = self.x_ranges[idx_z_pk]
+
+        # Placeholder for stored spectra. This is to avoid
+        # interpolating multiple times the reference spectra
+        # if k and z arrays do not change.
+        self.stored = {
+            'k': None,
+            'z': None,
+            'ref_spectrum': None,
+        }
 
         pass
 
@@ -205,24 +185,20 @@ class Pk(Spectrum):
         """
         Check that k is within the emulator range.
         """
-        low = self.k_array.min()
-        high = self.k_array.max()
-        if k.min() < low or k.max() > high:
+        if k.min() < self.k_min or k.max() > self.k_max:
             raise Exception(
                 'k (h/Mpc) = [{} - {}] out of range [{} - {}]'.format(
-                    k.min(), k.max(), low, high))
+                    k.min(), k.max(), self.k_min, self.k_max))
         return
 
     def _check_z_values(self, z):
         """
         Check that z is within the emulator range.
         """
-        low = self.class_vars['z_pk']['prior']['min']
-        high = self.class_vars['z_pk']['prior']['max']
-        if z.min() < low or z.max() > high:
+        if z.min() < self.z_min or z.max() > self.z_max:
             raise Exception(
                 'z = [{} - {}] out of range [{} - {}]'.format(
-                    z.min(), z.max(), low, high))
+                    z.min(), z.max(), self.z_min, self.z_max))
         return
 
     def _get_primordial_pk(self, ln_A_s_1e10, n_s, k_pivot, k):
@@ -307,6 +283,72 @@ class Pk(Spectrum):
 
         return pk
 
+    def _get_pk_or_fk_common(self, k, z, params, nonlinear=False):
+        """
+        Common steps to get pk or fk from the emulator
+        Arguments:
+        - k (float, list or array): single/list of wavenumbers;
+        - z (float, list or array): single/list of redshift;
+        - params (dict): dictionary with the cosmo parameters.
+
+        NOTE: k is in units of h/Mpc. P(k, z) is in units of (Mpc/h)^3.
+        """
+
+        # Create Params instance, responsible for:
+        # 1) converting the input parameters to the ones used internally
+        # 2) checking input consistency
+        # 3) splitting parameters for emulator and external routines
+        params_obj = Params(self, params)
+
+        # Check k
+        k = self._to_numpy_array(k)
+        # 1) is the same as stored?
+        same_k = self._is_same_array(k, self.stored['k'])
+        # 2) is inside the emulated ranges?
+        if not same_k:
+            self._check_k_values(k)
+
+        # Check z
+        z = self._to_numpy_array(z)
+        # 1) is the same as stored?
+        same_z = self._is_same_array(z, self.stored['z'])
+        # 2) is inside the emulated ranges?
+        if not same_z:
+            self._check_z_values(z)
+
+        # If z or k changed, reinterpolate reference
+        if not same_k or not same_z:
+            self.stored['k'] = k
+            self.stored['z'] = z
+            # This is done only if the emulator emulates the ratio
+            if self.ref['spectrum'] is not None:
+                ref = interp.make_splrep(
+                    self.ref['z'], self.ref['spectrum'].T, s=0)(z)
+                self.ref_spectrum_stored = interp.make_splrep(
+                    self.ref['k'], ref.T, s=0)(k)
+
+        # Init output
+        out_emu = np.zeros((len(self.ref['k']), len(self.stored['z'])))
+
+        # Iterate over each redshift and evaluate emulator
+        for nz, z_one in enumerate(self.stored['z']):
+            # Get parameters list for emulator
+            self.x_values = params_obj.get_values_emu(z_pk=z_one)
+            # Evaluate emulator
+            out_emu[:, nz] = self._eval_emu(self.x_values)
+
+        # Interpolate at the correct k
+        out_emu = interp.make_splrep(
+            self.ref['k'], out_emu, s=0)(self.stored['k'])
+
+        # Multiply by reference
+        if self.ref['spectrum'] is not None:
+            out = out_emu * self.ref_spectrum_stored
+        else:
+            out = out_emu
+
+        return out, params_obj
+
     def get(self, k, z, params, nonlinear=False):
         """
         Main method to get the power spectrum P(k, z) or the
@@ -323,81 +365,22 @@ class Pk(Spectrum):
         if nonlinear:
             raise ValueError('Nonlinear Pk not yet implemented')
 
-        # Convert cosmological parameters to those used internally
-        params = self._convert_cosmo_params(params)
-
-        # Check parameters
-        # 1) Parameter names: no missing and not unrecognized
-        self._check_param_names(params)
-        # 2) Parameter values: not outside the ranges
-        self._check_param_values(params)
-
-        # Check k
-        k = self._to_numpy_array(k)
-        # 1) is the same as stored?
-        same_k = self._is_same_array(k, self.k_stored)
-        # 2) is inside the emulated ranges?
-        if not same_k:
-            self._check_k_values(k)
-
-        # Check z
-        z = self._to_numpy_array(z)
-        # 1) is the same as stored?
-        same_z = self._is_same_array(z, self.z_stored)
-        # 2) is inside the emulated ranges?
-        if not same_z:
-            self._check_z_values(z)
-
-        # If z or k changed, reinterpolate reference
-        if not same_k or not same_z:
-            self.k_stored = k
-            self.z_stored = z
-            # This is done only if the emulator emulates the ratio
-            if self.ref is not None:
-                ref = interp.make_splrep(self.z_array, self.ref.T, s=0)(z)
-                self.ref_stored = interp.make_splrep(
-                    self.k_array, ref.T, s=0)(k)
-
-        # Prepare parameters list
-        params_emu = [params[name] if (name != 'z_pk') else None
-                      for name in self.x_names]
-        idx_z_pk = self.x_names.index('z_pk')
-
-        # Init output
-        out_emu = np.zeros((len(self.k_array), len(self.z_stored)))
-
-        # Iterate over each redshift and evaluate emulator
-        for nz, z_one in enumerate(self.z_stored):
-            params_emu[idx_z_pk] = z_one
-            # Evaluate emulator
-            out_emu[:, nz] = self._eval_emu(params_emu)
-
-        # Interpolate at the correct k
-        out_emu = interp.make_splrep(self.k_array, out_emu, s=0)(self.k_stored)
-
-        # Multiply by reference
-        if self.ref is not None:
-            out = out_emu * self.ref_stored
-        else:
-            out = out_emu
+        # Get emulator output
+        out, params_obj = self._get_pk_or_fk_common(
+            k, z, params, nonlinear=nonlinear)
 
         # Adjust shape with primordial Pk
-        if self.name.startswith('pk_'):
-            ref_primordial = self._get_primordial_pk(
-                self.class_args['ln_A_s_1e10'],
-                self.class_args['n_s'],
-                self.class_args['k_pivot'],
-                self.k_stored*self.class_ref['h'])
-            if 'k_pivot' in params:
-                k_pivot = params['k_pivot']
-            else:
-                k_pivot = self.class_args['k_pivot']
-            primordial = self._get_primordial_pk(
-                params['ln_A_s_1e10'],
-                params['n_s'],
-                k_pivot,
-                self.k_stored*params['h'])
-            out *= primordial[:, np.newaxis] / ref_primordial[:, np.newaxis]
+        ref_primordial = self._get_primordial_pk(
+            self.ref['params']['ln_A_s_1e10'],
+            self.ref['params']['n_s'],
+            self.ref['params']['k_pivot'],
+            self.stored['k']*self.ref['params']['h'])
+        primordial = self._get_primordial_pk(
+            params_obj._out['ln_A_s_1e10'],
+            params_obj._out['n_s'],
+            params_obj._out['k_pivot'],
+            self.stored['k']*params_obj._out['h'])
+        out *= primordial[:, np.newaxis] / ref_primordial[:, np.newaxis]
 
         return out
 
@@ -433,7 +416,7 @@ class Pk(Spectrum):
 
         # Get additional Class arguments needed to run smoothly
         class_args = {n: self.class_args[n] for n in self.class_args
-                      if n not in self.high_prec}
+                      if n not in self.class_high_prec}
         class_args['output'] = 'tCl, pCl, lCl, mPk, dTk'
         class_args['P_k_max_h/Mpc'] = k.max()
         class_args['z_max_pk'] = max(z.max(), 0.1)
@@ -444,9 +427,9 @@ class Pk(Spectrum):
                 prec = {}
             elif precision == 1:
                 prec = {n: self.class_args[n] for n in self.class_args
-                        if n in self.high_prec}
+                        if n in self.class_high_prec}
             elif precision == 2:
-                prec = self.high_prec
+                prec = self.class_high_prec
             else:
                 raise Exception('precision can be 0, 1, 2 or a dictionary!')
         elif isinstance(precision, dict):
@@ -492,6 +475,10 @@ class Fk(Pk):
 
     def __init__(self, **kwargs):
         Pk.__init__(self, **kwargs)
+
+        # Input parameters
+        self.input_params_names = [nm for nm in self.x_names if nm != 'z_pk']
+
         pass
 
     def get(self, k, z, params, nonlinear=False):
@@ -509,7 +496,7 @@ class Fk(Pk):
         spectra we emulate the ratio) again.
         """
 
-        out = Pk.get(self, k, z, params, nonlinear=nonlinear)
+        out, _ = self._get_pk_or_fk_common(k, z, params, nonlinear=nonlinear)
 
         return out
 
@@ -541,7 +528,7 @@ class Fk(Pk):
 
         # Get additional Class arguments needed to run smoothly
         class_args = {n: self.class_args[n] for n in self.class_args
-                      if n not in self.high_prec}
+                      if n not in self.class_high_prec}
         class_args['output'] = 'tCl, pCl, lCl, mPk, dTk'
         class_args['P_k_max_h/Mpc'] = k.max()
         class_args['z_max_pk'] = max(z.max(), 0.1)
@@ -552,9 +539,9 @@ class Fk(Pk):
                 prec = {}
             elif precision == 1:
                 prec = {n: self.class_args[n] for n in self.class_args
-                        if n in self.high_prec}
+                        if n in self.class_high_prec}
             elif precision == 2:
-                prec = self.high_prec
+                prec = self.class_high_prec
             else:
                 raise Exception('precision can be 0, 1, 2 or a dictionary!')
         elif isinstance(precision, dict):
@@ -605,30 +592,36 @@ class Cell(Spectrum):
 
     def __init__(self, **kwargs):
         Spectrum.__init__(self, **kwargs)
-        # Init specific attributes
-        self.has_ell = True
-        self.ell_array = kwargs['ell_array']
 
-        # Define cosmological parameters
-        self.cosmo_params = self.x_names.copy()
-        self.cosmo_params.sort()
+        # Input parameters (primordial power spectrum)
+        self.input_params_names = self.x_names.copy()
 
-        # Placeholders
-        self.ell_stored = None
-        self.ell_stored_indices = None
-        self.ref_stored = None
+        # Add ref_ell to ref dictionary
+        self.ref['ell'] = kwargs['ref_ell']
+
+        # Store min and max
+        self.ell_min = np.min(self.ref['ell'])
+        self.ell_max = np.max(self.ref['ell'])
+
+        # Placeholder for stored spectra. This is to avoid
+        # interpolating multiple times the reference spectra
+        # if k and z arrays do not change.
+        self.stored = {
+            'ell': None,
+            'ell_indices': None,
+            'ref_spectrum': None,
+        }
+
         pass
 
     def _check_ell_values(self, ell):
         """
         Check that ell is within the emulator range.
         """
-        low = self.ell_array.min()
-        high = self.ell_array.max()
-        if ell.min() < low or ell.max() > high:
+        if ell.min() < self.ell_min or ell.max() > self.ell_max:
             raise Exception(
                 'ell = [{} - {}] out of range [{} - {}]'.format(
-                    ell.min(), ell.max(), low, high))
+                    ell.min(), ell.max(), self.ell_min, self.ell_max))
         return
 
     def _to_numpy_array(self, x):
@@ -643,44 +636,42 @@ class Cell(Spectrum):
         - params (dict): dictionary with the cosmo parameters.
         """
 
-        # Convert cosmological parameters to those used internally
-        params = self._convert_cosmo_params(params)
+        # Create Params instance, responsible for:
+        # 1) converting the input parameters to the ones used internally
+        # 2) checking input consistency
+        # 3) splitting parameters for emulator and external routines
+        params_obj = Params(self, params)
 
-        # Check parameters
-        # 1) Parameter names: no missing and not unrecognized
-        self._check_param_names(params)
-        # 2) Parameter values: not outside the ranges
-        self._check_param_values(params)
-
-        # Check k
+        # Check ell
         ell = self._to_numpy_array(ell)
         # 1) is the same as stored?
-        same_ell = self._is_same_array(ell, self.ell_stored)
+        same_ell = self._is_same_array(ell, self.stored['ell'])
         # 2) is inside the emulated ranges?
         if not same_ell:
             self._check_ell_values(ell)
 
         # If ell range changed, re-cut reference
         if not same_ell:
-            self.ell_stored = ell
-            self.ell_stored_indices = np.where(np.isin(self.ell_array, ell))[0]
+            self.stored['ell'] = ell
+            self.stored['ell_indices'] = np.where(
+                np.isin(self.ref['ell'], ell))[0]
             # This is done only if the emulator emulates the ratio
             # NOTE: For the Cells we could have just extracted the elements,
             # but it was quicker to just copy/past from Pk
 
-            if self.ref is not None:
-                self.ref_stored = self.ref[self.ell_stored_indices]
+            if self.ref['spectrum'] is not None:
+                self.ref_spectrum_stored = self.ref['spectrum'][
+                    self.stored['ell_indices']]
 
         # Prepare parameters list
-        params_emu = [params[name] if (name != 'z_pk') else 0.
-                      for name in self.x_names]
+        self.x_values = params_obj.get_values_emu()
 
         # Evaluate emulator
-        out_emu = self._eval_emu(params_emu)[self.ell_stored_indices]
+        out_emu = self._eval_emu(self.x_values)[self.stored['ell_indices']]
 
         # Multiply by reference
-        if self.ref is not None:
-            out = out_emu * self.ref_stored
+        if self.ref['spectrum'] is not None:
+            out = out_emu * self.ref_spectrum_stored
         else:
             out = out_emu
 
@@ -704,7 +695,7 @@ class Cell(Spectrum):
 
         # Get additional Class arguments needed to run smoothly
         class_args = {n: self.class_args[n] for n in self.class_args
-                      if n not in self.high_prec}
+                      if n not in self.class_high_prec}
         class_args['output'] = 'tCl, pCl, lCl, mPk, dTk'
         class_args['l_max_scalars'] = ell.max()
         class_args['lensing'] = 'yes'
@@ -715,9 +706,9 @@ class Cell(Spectrum):
                 prec = {}
             elif precision == 1:
                 prec = {n: self.class_args[n] for n in self.class_args
-                        if n in self.high_prec}
+                        if n in self.class_high_prec}
             elif precision == 2:
-                prec = self.high_prec
+                prec = self.class_high_prec
             else:
                 raise Exception('precision can be 0, 1, 2 or a dictionary!')
         elif isinstance(precision, dict):
