@@ -122,6 +122,7 @@ class StandardScaler(Scaler):
     def __init__(self, **kwargs):
         Scaler.__init__(self, **kwargs)
         self.skl_scaler = skl_pre.StandardScaler()
+        # Store Scaler attributes
         self.skl_scaler.mean_ = kwargs['mean_']
         self.skl_scaler.scale_ = kwargs['scale_']
         self.skl_scaler.var_ = kwargs['var_']
@@ -150,6 +151,7 @@ class LogStandardScaler(Scaler):
     def __init__(self, **kwargs):
         Scaler.__init__(self, **kwargs)
         self.skl_scaler = skl_pre.StandardScaler()
+        # Store Scaler attributes
         self.skl_scaler.mean_ = kwargs['mean_']
         self.skl_scaler.scale_ = kwargs['scale_']
         self.skl_scaler.var_ = kwargs['var_']
@@ -178,6 +180,7 @@ class MinusLogStandardScaler(Scaler):
     def __init__(self, **kwargs):
         Scaler.__init__(self, **kwargs)
         self.skl_scaler = skl_pre.StandardScaler()
+        # Store Scaler attributes
         self.skl_scaler.mean_ = kwargs['mean_']
         self.skl_scaler.scale_ = kwargs['scale_']
         self.skl_scaler.var_ = kwargs['var_']
@@ -206,6 +209,7 @@ class MinMaxScaler(Scaler):
     def __init__(self, **kwargs):
         Scaler.__init__(self, **kwargs)
         self.skl_scaler = skl_pre.MinMaxScaler()
+        # Store Scaler attributes
         self.skl_scaler.min_ = kwargs['min_']
         self.skl_scaler.scale_ = kwargs['scale_']
         self.skl_scaler.data_min_ = kwargs['data_min_']
@@ -235,6 +239,7 @@ class MinMaxCommonScaler(Scaler):
 
     def __init__(self, **kwargs):
         Scaler.__init__(self, **kwargs)
+        # Store Scaler attributes
         self.glob_min_ = kwargs['glob_min_']
         self.glob_max_ = kwargs['glob_max_']
         return
@@ -270,6 +275,7 @@ class MinMaxPlus1Scaler(Scaler):
     def __init__(self, **kwargs):
         Scaler.__init__(self, **kwargs)
         self.skl_scaler = skl_pre.MinMaxScaler()
+        # Store Scaler attributes
         self.skl_scaler.min_ = kwargs['min_']
         self.skl_scaler.scale_ = kwargs['scale_']
         self.skl_scaler.data_min_ = kwargs['data_min_']
@@ -301,6 +307,7 @@ class ExpMinMaxScaler(Scaler):
     def __init__(self, **kwargs):
         Scaler.__init__(self, **kwargs)
         self.skl_scaler = skl_pre.MinMaxScaler()
+        # Store Scaler attributes
         self.skl_scaler.min_ = kwargs['min_']
         self.skl_scaler.scale_ = kwargs['scale_']
         self.skl_scaler.data_min_ = kwargs['data_min_']
