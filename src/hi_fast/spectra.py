@@ -3,6 +3,7 @@ import numpy as np
 import scipy.interpolate as interp
 from . import io as io
 from .params import Params
+from .scalers import Scaler
 
 
 # ------------------- Spectrum -----------------------------------------------#
@@ -19,8 +20,8 @@ class Spectrum(object):
         # Parameters ranges (list of list of floats)
         self.x_ranges = kwargs['x_ranges']
         # Scalers used by the emulator. TODO: implement portability
-        self.x_scaler = kwargs['x_scaler']
-        self.y_scaler = kwargs['y_scaler']
+        self.x_scaler = Scaler.choose_one(**kwargs['x_scaler'])
+        self.y_scaler = Scaler.choose_one(**kwargs['y_scaler'])
         # PCA used by the emulator. TODO: implement portability
         self.x_pca = kwargs['x_pca']
         self.y_pca = kwargs['y_pca']
