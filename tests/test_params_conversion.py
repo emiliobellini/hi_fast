@@ -4,7 +4,7 @@ from hi_fast import HiFast
 # Load HiFast instance
 cosmo = HiFast(
     'lcdm',
-    root='/ceph/hpc/home/bellinie/hi_fast/output',
+    root='output',
     timeit=True,
     verbose=True)
 
@@ -19,7 +19,7 @@ params = {
     'n_s': 0.966,
 }
 
-ref_k = np.logspace(-4., np.log10(50.), num=600)
+ref_k = np.logspace(-5., np.log10(50.), num=600)
 
 pk_emu_std = cosmo.get_pk(
     ref_k,

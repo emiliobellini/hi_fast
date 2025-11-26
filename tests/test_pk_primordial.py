@@ -5,7 +5,7 @@ from hi_fast import HiFast
 # Load HiFast instance
 cosmo = HiFast(
     'lcdm',
-    root='/ceph/hpc/home/bellinie/hi_fast/output',
+    root='output',
     timeit=True,
     verbose=True)
 # cosmo.print_input_params()
