@@ -7,7 +7,7 @@ from hi_fast import HiFast
 # Load HiFast instance
 cosmo = HiFast(
     'lcdm',
-    root='/ceph/hpc/home/bellinie/hi_fast/output',
+    root='/ceph/hpc/home/bellinie/hi_fast/output/lcdm/export_new',
     timeit=True,
     verbose=True)
 # cosmo.print_input_params()
@@ -19,7 +19,7 @@ for spectrum in ['fk_m', 'fk_cb', 'fk_weyl']:
 
     # Load reference fk from file
     fits = io.FitsFile(
-        '/ceph/hpc/data/s25r06-05-users/old/lcdm/pk_100_thin.fits')
+        '/ceph/hpc/home/bellinie/hi_fast/output/lcdm/sample/pk_100_thin.fits')
     x_data = fits.get_data('x_data')[idx_data]
     z = x_data[0]
     params = {

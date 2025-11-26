@@ -6,20 +6,19 @@ from hi_fast import HiFast
 # Load HiFast instance
 cosmo = HiFast(
     'lcdm',
-    root='/ceph/hpc/home/bellinie/hi_fast/output',
+    root='/ceph/hpc/home/bellinie/hi_fast/output/lcdm/export_new',
     timeit=True,
     verbose=True)
-cosmo.print_input_params(spectrum='cl_TT_lensed')
+# cosmo.print_input_params()
 
 # Index to plot
 idx_data = 1
 
-# for spectrum in ['cl_TT', 'cl_TE', 'cl_EE', 'cl_BB', 'cl_Tp', 'cl_pp']:
-for spectrum in ['cl_EE']:
+for spectrum in ['cl_TT', 'cl_TE', 'cl_EE', 'cl_BB', 'cl_Tp', 'cl_pp']:
 
     # Load reference Pk from file
     fits = io.FitsFile(
-        '/ceph/hpc/data/s25r06-05-users/old/lcdm/cl_100_thin.fits')
+        '/ceph/hpc/home/bellinie/hi_fast/output/lcdm/sample/cl_100_thin.fits')
     x_data = fits.get_data('x_data')[idx_data]
     params = {
         'h': x_data[0],
