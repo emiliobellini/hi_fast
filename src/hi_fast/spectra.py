@@ -4,6 +4,7 @@ import scipy.interpolate as interp
 from . import io as io
 from .params import Params
 from .scalers import Scaler
+from .pca import PCA
 
 
 # ------------------- Spectrum -----------------------------------------------#
@@ -23,8 +24,8 @@ class Spectrum(object):
         self.x_scaler = Scaler.choose_one(**kwargs['x_scaler'])
         self.y_scaler = Scaler.choose_one(**kwargs['y_scaler'])
         # PCA used by the emulator. TODO: implement portability
-        self.x_pca = kwargs['x_pca']
-        self.y_pca = kwargs['y_pca']
+        self.x_pca = PCA(**kwargs['x_pca'])
+        self.y_pca = PCA(**kwargs['y_pca'])
         # Emulator model
         self.model = kwargs['model']
         # Dictionary for reference parameters and spectra. Keys:
