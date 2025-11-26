@@ -33,7 +33,7 @@ class Params(object):
 
         # Prepare emulator parameters
         if self._spectrum.name.startswith('cl_'):
-            self.emu = self._spectrum.x_names
+            self.emu = [self._out[name] for name in self._spectrum.x_names]
         else:
             self.emu = [
                 self._out[name] if (name != 'z_pk') else None
