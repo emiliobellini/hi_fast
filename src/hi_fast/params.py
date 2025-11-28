@@ -46,7 +46,8 @@ class Params(object):
             # base param, new param, conversion function
             ('h', 'H0', lambda H0: H0/100.),
             ('ln_A_s_1e10', 'A_s', lambda A_s: np.log(A_s*1e10)),
-            ('ln_A_s_1e10', 'sigma_8', lambda A_s: 0.8),  # TODO: implement
+            ('ln_A_s_1e10', 'sigma_8',
+             lambda A_s: self._spectrum.sigma8_from_As(A_s)),
         ]
         return rules
 
