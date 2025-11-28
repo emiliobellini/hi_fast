@@ -254,9 +254,8 @@ class Pk(Spectrum):
         - P_primordial (array): primordial power spectrum at k.
         """
 
-        A_s = np.exp(ln_A_s_1e10) / 1e10
-        P_primordial = A_s * (k / k_pivot)**(n_s - 1.)
-        P_primordial = A_s * np.exp((n_s-1.)*np.log(k/k_pivot))
+        log_P_1e10 = ln_A_s_1e10 + (n_s-1.)*np.log(k/k_pivot)
+        P_primordial = np.exp(log_P_1e10) / 1e10
 
         return P_primordial
 
