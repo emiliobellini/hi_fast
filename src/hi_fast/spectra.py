@@ -175,6 +175,20 @@ class Spectrum(object):
             io.print_level(1, '{}. {}'.format(self.name, msg[:-2] + '.'))
         return
 
+    def sigma8_from_As(self, A_s):
+        """
+        Compute sigma_8 from the matter power spectrum calculated by HiFast.
+        Arguments:
+        - A_s (float): amplitude of primordial power spectrum.
+        """
+        # Get reference A_s and sigma_8
+        A_s_ref = np.exp(self.ref['params']['ln_A_s_1e10']) / 1e10
+        sigma_8_ref = self.ref['params']['sigma_8']
+
+        sigma_8 = sigma_8_ref * np.sqrt(A_s / A_s_ref)
+
+        return sigma_8
+
 
 # ------------------- Pk -----------------------------------------------------#
 
@@ -259,25 +273,9 @@ class Pk(Spectrum):
         Returns:
         - P_weyl (array): Weyl power spectrum at k and z.
         """
-        pk_array, k_array, z_array = self.cosmo.get_Weyl_pk_and_k_and_z(
-            nonlinear=True,
-            h_units=False
-        )
 
-        # Adjust units
-        k_array /= self.cosmo.h()
-        pk_array *= self.cosmo.h()**3.
-
-        # Flip z_array (for the interpolation it has to be increasing)
-        z_array = np.flip(z_array)
-        pk_array = np.flip(pk_array, axis=1)
-
-        # Evaluate pk at the requested range
-        pk = np.zeros((n_k, n_z, n_mu))
-        pk_int = interp.make_splrep(k_array, pk_array, s=0)(k[:, 0, 0])
-        for nzval, zval in enumerate(z):
-            print(interp.make_splrep(z_array, pk_int.T, s=0)(zval).shape)
-            pk[:, nzval] = interp.make_splrep(z_array, pk_int.T, s=0)(zval)
+        # TODO: for now we just call the linear one
+        pk = self._get_weyl_pk_lin(k, z, n_k, n_z, n_mu)
 
         return pk
 
