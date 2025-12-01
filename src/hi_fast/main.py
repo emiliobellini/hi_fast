@@ -1,5 +1,6 @@
 from . import io as io
 from . import spectra as sp
+from .params import Params
 
 
 class HiFast(object):
@@ -20,6 +21,7 @@ class HiFast(object):
         self._emu = {}
         if name is not None:
             self._load(name, root=self.root, timeit=timeit, verbose=verbose)
+        self._params_obj = None
 
         pass
 
@@ -52,23 +54,6 @@ class HiFast(object):
             io.info('Loaded emulators for {} model'.format(name))
         return
 
-    def print_input_params(self, spectrum=None):
-        """
-        Print the cosmological parameters required by HiFast.
-        Arguments:
-        - spectrum (str, default: None): name of the spectrum
-            for which we want to print the input parameters. By
-            default it prints all the spectra.
-        """
-
-        if spectrum is not None:
-            self._emu[spectrum].print_input_params(level=0)
-        else:
-            io.info('Cosmological parameters:')
-            for spectrum in self._emu:
-                self._emu[spectrum].print_input_params(level=1)
-        return
-
     @io.timeit
     def get_pk(
             self,
@@ -78,6 +63,7 @@ class HiFast(object):
             name='m',
             nonlinear=False,
             squeeze=False,
+            verbose=False,
             timeit=False):
         """
         Main method to get the power spectrum P(k, z) at some z and k.
@@ -91,6 +77,7 @@ class HiFast(object):
             - weyl: Weyl potential.
         - nonlinear (bool, default: False);
         - squeeze (bool, default: False): squeeze dimensions of output array;
+        - verbose (bool, default: False): verbosity;
         - timeit (bool, default: False): print execution time.
 
         NOTE: k is in units of h/Mpc. P(k, z) is in units of (Mpc/h)^3.
@@ -103,8 +90,18 @@ class HiFast(object):
         # Select correct emu
         emu = self._emu['pk_{}'.format(name)]
 
+        # Create Params instance:
+        # 1) convert the input parameters to the ones used internally
+        # 2) check input consistency
+        # 3) split parameters for emulator and external routines
+        params_obj = Params(params, emu, emus_list=self._emu)
+
+        # Print parameters if verbose
+        if verbose:
+            self._print_input_params()
+
         # Get output
-        out = emu.get(k, z, params)
+        out = emu.get(k, z, params_obj)
 
         # Squeeze dimensions
         if squeeze:
@@ -126,6 +123,7 @@ class HiFast(object):
             name='m',
             nonlinear=False,
             squeeze=False,
+            verbose=False,
             timeit=False):
         """
         Main method to get the growth rate
@@ -140,6 +138,7 @@ class HiFast(object):
             - weyl: Weyl potential.
         - nonlinear (bool, default: False);
         - squeeze (bool, default: False): squeeze dimensions of output array;
+        - verbose (bool, default: False): verbosity;
         - timeit (bool, default: False): print execution time.
 
         NOTE: k is in units of h/Mpc. f(k, z) is dimensionless.
@@ -152,8 +151,18 @@ class HiFast(object):
         # Select correct emu
         emu = self._emu['fk_{}'.format(name)]
 
+        # Create Params instance, responsible for:
+        # 1) converting the input parameters to the ones used internally
+        # 2) checking input consistency
+        # 3) splitting parameters for emulator and external routines
+        params_obj = Params(params, emu, emus_list=self._emu)
+
+        # Print parameters if verbose
+        if verbose:
+            self._print_input_params()
+
         # Get output
-        out = emu.get(k, z, params)
+        out = emu.get(k, z, params_obj)
 
         # Squeeze dimensions
         if squeeze:
@@ -173,6 +182,7 @@ class HiFast(object):
             params,
             name='TT',
             squeeze=False,
+            verbose=False,
             timeit=False):
         """
         Main method to get the Cell at some ell. As in Class,
@@ -195,18 +205,29 @@ class HiFast(object):
             - E, B: polarization
             - p: lensing potential
         - squeeze (bool, default: False): squeeze dimensions of output array;
+        - verbose (bool, default: False): verbosity;
         - timeit (bool, default: False): print execution time.
 
         """
 
         # Select correct emu
         try:
-            emu = self._emu['cl_{}_lensed'.format(name)]
+            self.emu = self._emu['cl_{}_lensed'.format(name)]
         except KeyError:
-            emu = self._emu['cl_{}'.format(name)]
+            self.emu = self._emu['cl_{}'.format(name)]
+
+        # Create Params instance, responsible for:
+        # 1) converting the input parameters to the ones used internally
+        # 2) checking input consistency
+        # 3) splitting parameters for emulator and external routines
+        self._params_obj = Params(params, self.emu, emus_list=self._emu)
+
+        # Print parameters if verbose
+        if verbose:
+            self._print_input_params()
 
         # Get output
-        out = emu.get(ell, params)
+        out = self.emu.get(ell, self._params_obj)
 
         # Squeeze dimensions
         if squeeze and out.shape == (1,):
@@ -224,6 +245,7 @@ class HiFast(object):
             precision=0,
             nonlinear=False,
             squeeze=False,
+            verbose=False,
             timeit=False):
         """
         Main method to get the power spectrum P(k, z) at some z and k
@@ -257,7 +279,8 @@ class HiFast(object):
         emu = self._emu['pk_{}'.format(name)]
 
         # Get output
-        out = emu.get_from_class(k, z, params, precision=precision)
+        out = emu.get_from_class(
+            k, z, params, precision=precision, verbose=verbose)
 
         # Squeeze dimensions
         if squeeze:
@@ -280,6 +303,7 @@ class HiFast(object):
             precision=0,
             nonlinear=False,
             squeeze=False,
+            verbose=False,
             timeit=False):
         """
         Main method to get the growth rate
@@ -313,7 +337,8 @@ class HiFast(object):
         emu = self._emu['fk_{}'.format(name)]
 
         # Get output
-        out = emu.get_from_class(k, z, params, precision=precision)
+        out = emu.get_from_class(
+            k, z, params, precision=precision, verbose=verbose)
 
         # Squeeze dimensions
         if squeeze:
@@ -334,6 +359,7 @@ class HiFast(object):
             name='TT',
             precision=0,
             squeeze=False,
+            verbose=False,
             timeit=False):
         """
         Main method to get the Cell at some ell from Class.
@@ -373,10 +399,25 @@ class HiFast(object):
             emu = self._emu['cl_{}'.format(name)]
 
         # Get output
-        out = emu.get_from_class(ell, params, precision=precision)
+        out = emu.get_from_class(
+            ell, params, precision=precision, verbose=verbose)
 
         # Squeeze dimensions
         if squeeze and out.shape == (1,):
             return out[0]
 
         return out
+
+    def _print_input_params(self):
+        """
+        Print the input parameters for all loaded emulators.
+        """
+        io.info('Input parameters for {}:'.format(self.emu.name))
+        for name in self.emu.input_params_names:
+            msg = ' - {}: {}'.format(name, self._params_obj._out[name])
+            for base, der, _ in self._params_obj._conversion_rules(None):
+                if name == base and der in self._params_obj._in:
+                    msg += '  (from {} = {})'.format(
+                        der, self._params_obj._in[der])
+            print(msg)
+        return
