@@ -94,14 +94,14 @@ class HiFast(object):
         # 1) convert the input parameters to the ones used internally
         # 2) check input consistency
         # 3) split parameters for emulator and external routines
-        params_obj = Params(params, emu, emus_list=self._emu)
+        self._params_obj = Params(params, emu, emus_list=self._emu)
 
         # Print parameters if verbose
         if verbose:
-            self._print_input_params()
+            self._print_input_params(emu.name)
 
         # Get output
-        out = emu.get(k, z, params_obj)
+        out = emu.get(k, z, self._params_obj)
 
         # Squeeze dimensions
         if squeeze:
@@ -155,14 +155,14 @@ class HiFast(object):
         # 1) converting the input parameters to the ones used internally
         # 2) checking input consistency
         # 3) splitting parameters for emulator and external routines
-        params_obj = Params(params, emu, emus_list=self._emu)
+        self._params_obj = Params(params, emu, emus_list=self._emu)
 
         # Print parameters if verbose
         if verbose:
-            self._print_input_params()
+            self._print_input_params(emu.name)
 
         # Get output
-        out = emu.get(k, z, params_obj)
+        out = emu.get(k, z, self._params_obj)
 
         # Squeeze dimensions
         if squeeze:
@@ -212,22 +212,22 @@ class HiFast(object):
 
         # Select correct emu
         try:
-            self.emu = self._emu['cl_{}_lensed'.format(name)]
+            emu = self._emu['cl_{}_lensed'.format(name)]
         except KeyError:
-            self.emu = self._emu['cl_{}'.format(name)]
+            emu = self._emu['cl_{}'.format(name)]
 
         # Create Params instance, responsible for:
         # 1) converting the input parameters to the ones used internally
         # 2) checking input consistency
         # 3) splitting parameters for emulator and external routines
-        self._params_obj = Params(params, self.emu, emus_list=self._emu)
+        self._params_obj = Params(params, emu, emus_list=self._emu)
 
         # Print parameters if verbose
         if verbose:
-            self._print_input_params()
+            self._print_input_params(emu.name)
 
         # Get output
-        out = self.emu.get(ell, self._params_obj)
+        out = emu.get(ell, self._params_obj)
 
         # Squeeze dimensions
         if squeeze and out.shape == (1,):
@@ -408,15 +408,15 @@ class HiFast(object):
 
         return out
 
-    def _print_input_params(self):
+    def _print_input_params(self, name):
         """
         Print the input parameters for all loaded emulators.
         """
-        io.info('Input parameters for {}:'.format(self.emu.name))
-        for name in self.emu.input_params_names:
-            msg = ' - {}: {}'.format(name, self._params_obj._out[name])
+        io.info('Input parameters for {}:'.format(name))
+        for par in self._emu[name].input_params_names:
+            msg = ' - {}: {}'.format(par, self._params_obj._out[par])
             for base, der, _ in self._params_obj._conversion_rules(None):
-                if name == base and der in self._params_obj._in:
+                if par == base and der in self._params_obj._in:
                     msg += '  (from {} = {})'.format(
                         der, self._params_obj._in[der])
             print(msg)
