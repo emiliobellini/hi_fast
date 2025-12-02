@@ -1,143 +1,197 @@
 import numpy as np
+import scipy.optimize as opt
 from . import io as io
 
 
 class Params(object):
 
     @io.timeit
-    def __init__(
-            self,
-            params,
-            spectrum,
-            spectra=None,
-            convert=True,
-            add_defaults=True,
-            check_names=True,
-            check_values=True,
-            raise_error_names=True,
-            raise_error_values=True,
-            timeit=False):
+    def __init__(self, spectrum, spectra, timeit=False):
+        # Name of the spectrum
+        self._spectrum_name = spectrum.name
+        # List of spectra classes
+        self._spectra = spectra
+        # List of required input parameters names
+        self._required = spectrum.input_params_names
+        # List of required emulator parameters names
+        self._emu = spectrum.x_names
+        # List of additional parameters (not used by the emulator)
+        self._additional = [p for p in self._required if p not in self._emu]
+        # For each of the emulator parameters, get its range
+        self._ranges = {
+            name: spectrum.x_ranges[spectrum.x_names.index(name)]
+            for name in self._emu}
+        # For each of the required parameters, get possible derived ones
+        standard_rules, shooting_rules = self._conversion_rules()
+        self._derived = {}
+        for name in self._required:
+            self._derived[name] = [name]
+            for der in standard_rules:
+                if standard_rules[der]['base'] == name:
+                    self._derived[name].append(der)
+            for der in shooting_rules:
+                if shooting_rules[der]['base'] == name:
+                    self._derived[name].append(der)
+            self._derived[name].sort()
 
-        self._in = params
-        self._spectrum = spectrum
-        self._out = params.copy()
-
-        if convert is True:
-            self._out = self._convert_cosmo_params(
-                self._out, spectra=spectra)
-
-        if add_defaults is True:
-            self._out = Params._add_defaults(
-                self._out,
-                required_params=self._spectrum.input_params_names)
-
-        if check_names:
-            self._check_param_names(
-                self._out, raise_error=raise_error_names)
-
-        if check_values:
-            self._check_param_values(
-                self._out, raise_error=raise_error_values)
-
-        # Prepare emulator parameters
-        if self._spectrum.name.startswith('cl_'):
-            self.emu = [self._out[name] for name in self._spectrum.x_names]
-        else:
-            self.emu = [
-                self._out[name] if (name != 'z_pk') else None
-                for name in self._spectrum.x_names]
-            self.idx_z_pk = self._spectrum.x_names.index('z_pk')
         pass
 
-    def _conversion_rules(self, params, spectra=None):
+    def _conversion_rules(self):
         """
         Define conversion rules for cosmological parameters.
+        Returns two dictionaries:
+        - standard_rules: direct conversions
+        - shooting_rules: conversions requiring shooting methods.
+        Both dictionaries have the format:
+        {'derived_param': {
+            'base': 'base_param',
+            'func': function_to_convert}}
         """
+        standard_rules = {
+            'H0': {
+                'base': 'h',
+                'func': lambda H0: H0 / 100.
+            },
+            'A_s': {
+                'base': 'ln_A_s_1e10',
+                'func': lambda A_s: np.log(A_s * 1e10)
+            },
+        }
+        shooting_rules = {
+            'sigma8_cb': {
+                'base': 'ln_A_s_1e10',
+                'func': self._spectra['pk_cb'].get_sigma8_cb_from_params,
+                'guess': 3.
+            },
+        }
 
-        # NOTE: make sure that if a conversion rule depends on the value of
-        # another parameter, the latter is already converted when needed.
-        if spectra is None:
-            fs8 = None
-        else:
-            fs8 = spectra['pk_cb'].get_As_from_sigma_8
+        return standard_rules, shooting_rules
 
-        conversion_rules = [
-            # base param, new param, conversion function
-            ('h', 'H0', lambda H0: H0/100.),
-            ('ln_A_s_1e10', 'A_s', lambda A_s: np.log(A_s*1e10)),
-            ('ln_A_s_1e10', 'sigma8_cb', lambda sigma8_cb: fs8(
-                sigma8_cb, params))
-        ]
-
-        return conversion_rules
-
-    def _convert_cosmo_params(self, params, spectra=None):
+    def _print(self, in_params, out_params):
         """
-        Convert cosmological parameters if needed.
+        Print the input parameters for all loaded emulators.
+        """
+        io.info('Input parameters for {}:'.format(self._spectrum_name))
+        for par in self._required:
+            msg = ' - {}: {}'.format(par, out_params[par])
+            standard_rules, shooting_rules = self._conversion_rules()
+            for der in standard_rules:
+                if der in in_params:
+                    if standard_rules[der]['base'] == par:
+                        msg += '  (from {} = {})'.format(der, in_params[der])
+            for der in shooting_rules:
+                if der in in_params:
+                    if shooting_rules[der]['base'] == par:
+                        msg += '  (from {} = {})'.format(der, in_params[der])
+            print(msg)
+        return
+
+    def _shooting(self, params, names, targets, rules):
+        """
+        Perform shooting method to derive parameters.
         """
 
         out = params.copy()
-        conversion_rules = self._conversion_rules(out, spectra=spectra)
 
-        for base, new, func in conversion_rules:
-            if base not in params and new in out:
-                out[base] = func(out[new])
-                out.pop(new)
+        def solve_all(x, params, names, targets, rules):
+            # Assign values
+            for nname, name in enumerate(names):
+                params[rules[name]['base']] = x[nname]
+            # Compute values
+            vals = []
+            for name in names:
+                func = rules[name]['func']
+                val = func(params)
+                vals.append(val - targets[names.index(name)])
+            return np.array(vals)
+
+        # Initial guess
+        guess = [rules[name]['guess'] for name in names]
+
+        # Find roots
+        sol = opt.root(solve_all, x0=guess, args=(out, names, targets, rules))
+
+        for name in names:
+            out[rules[name]['base']] = sol.x[names.index(name)]
+
         return out
 
-    def _check_param_names(self, params, raise_error=True):
+    def _check_input_param_names(self, params):
         """
         Check that the parameters passed are
-        exactly those expected (not missing, not undefined).
+        exactly those expected (not missing, not defined multiple times).
         """
-        # Expected parameters
-        expected = self._spectrum.input_params_names
-        expected.sort()
-        # Given parameters
-        given = list(params.keys())
-        given.sort()
 
-        if given != expected:
-            if raise_error is True:
+        for par in self._required:
+            common = list(set(self._derived[par]) & set(params.keys()))
+            if len(common) == 0:
                 raise Exception(
-                    'I expected parameters {}, and I got {}!'
-                    ''.format(expected, given))
-                return False
-        return True
+                    'One parameter between {} is required, but not provided!'
+                    ''.format(self._derived[par]))
+            if len(common) > 1:
+                raise Exception(
+                    'Only one parameter between {} is allowed, but got {}!'
+                    ''.format(self._derived[par], common))
+        return
 
-    def _check_param_values(self, params, raise_error=True):
+    def _check_output_param_values(self, params):
         """
-        Check that the parameters are within the emulator range.
+        Check that the parameters after conversion are
+        within the emulator range.
         """
         for par in params:
-            if par not in self._spectrum.x_names:
+            if par not in self._emu:
                 continue
-            idx_par = self._spectrum.x_names.index(par)
-            low, high = self._spectrum.x_ranges[idx_par]
+            low, high = self._ranges[par]
             in_range = low <= params[par] <= high
             if not in_range:
-                if raise_error is True:
-                    raise Exception(
-                        'Parameter {} = {} out of range [{} - {}]'
-                        ''.format(par, params[par], low, high))
-                else:
-                    return False
-        return True
+                raise Exception(
+                    'Parameter {} = {} out of range [{} - {}]'
+                    ''.format(par, params[par], low, high))
+        return
 
-    def get_values_emu(self, **kwargs):
-        if self._spectrum.name.startswith('cl_'):
-            return self.emu
-        else:
-            self.emu[self.idx_z_pk] = kwargs['z_pk']
-        return self.emu
+    def get(
+            self,
+            params,
+            check_params_names=True,
+            check_params_values=True,
+            verbose=False):
+        """
+        Get parameters for the emulator. Arguments:
+        - params (dict): input parameters (can be derived);
+        - check_params_names (bool, default: True): check parameter names;
+        - check_params_values (bool, default: True): check parameter values;
+        - verbose (bool, default: False): print input and converted parameters.
+        Returns:
+        - out (dict): parameters for the emulator."""
 
-    @staticmethod
-    def _add_defaults(params, required_params):
-        defaults = {
-            'k_pivot': 0.05  # In 1/Mpc units
-        }
-        for name, val in defaults.items():
-            if name in required_params:
-                if name not in params:
-                    params[name] = val
-        return params
+        out = params.copy()
+
+        if check_params_names is True:
+            self._check_input_param_names(params)
+
+        # Convert parameters
+        standard_rules, shooting_rules = self._conversion_rules()
+        shoot_on_name = []
+        shoot_on_val = []
+        for par in params:
+            if par in standard_rules:
+                base = standard_rules[par]['base']
+                func = standard_rules[par]['func']
+                out[base] = func(out[par])
+                out.pop(par)
+            if par in shooting_rules:
+                shoot_on_name.append(par)
+                shoot_on_val.append(out[par])
+                out.pop(par)
+        if len(shoot_on_name) > 0:
+            out = self._shooting(
+                out, shoot_on_name, shoot_on_val, shooting_rules)
+
+        if check_params_values is True:
+            self._check_output_param_values(out)
+
+        if verbose:
+            self._print(params, out)
+
+        return out

@@ -1,9 +1,7 @@
 import classy
 import numpy as np
 import scipy.interpolate as interp
-import scipy.optimize as optimize
 from . import io as io
-from .params import Params
 from .pca import PCA
 from .scalers import Scaler
 
@@ -58,11 +56,9 @@ class Spectrum(object):
         # that the user should provide in order to correctly evaluate the
         # spectrum. Not all the parameters used by the emulator go here (e.g.
         # z_pk, which is given as an argument of the Spectrum.get method). In
-        # addition, tt contains the parameters that are used by external
-        # routines (e.g. ln_A_s_1e10, n_s, k_pivot to calculate the primordial
-        # power spectrum). Check the params.Params.add_defaults method to
-        # verify which are the ones that are not strictly necessary as a
-        # default value has been specified.
+        # addition, it contains the parameters that are used by external
+        # routines (e.g. ln_A_s_1e10, n_s to calculate the primordial
+        # power spectrum).
         self.input_params_names = []
 
         pass
@@ -219,7 +215,7 @@ class Pk(Spectrum):
 
         # Input parameters (primordial power spectrum)
         self.input_params_names = [nm for nm in self.x_names if nm != 'z_pk']
-        self.input_params_names += ['ln_A_s_1e10', 'n_s', 'k_pivot']
+        self.input_params_names += ['ln_A_s_1e10', 'n_s']
 
         # Add ref_z and ref_k to ref dictionary
         self.ref['z'] = kwargs['ref_z']
@@ -261,6 +257,12 @@ class Pk(Spectrum):
                 'z = [{} - {}] out of range [{} - {}]'.format(
                     z.min(), z.max(), self.z_min, self.z_max))
         return
+
+    def _get_values_emu(self, params, **kwargs):
+        vals = [
+            params[p] if p != 'z_pk' else None for p in self.x_names]
+        vals[self.x_names.index('z_pk')] = kwargs['z_pk']
+        return np.array(vals)
 
     def _sigma_R_integral(self, k, pk, R):
         """
@@ -393,7 +395,7 @@ class Pk(Spectrum):
         # Iterate over each redshift and evaluate emulator
         for nz, z_one in enumerate(self.stored['z']):
             # Get parameters list for emulator
-            self.x_values = params.get_values_emu(z_pk=z_one)
+            self.x_values = self._get_values_emu(params, z_pk=z_one)
             # Evaluate emulator
             out_emu[:, nz] = self._eval_emu(self.x_values)
 
@@ -436,10 +438,10 @@ class Pk(Spectrum):
             self.ref['params']['k_pivot'],
             self.stored['k']*self.ref['params']['h'])
         primordial = self._get_primordial_pk(
-            params._out['ln_A_s_1e10'],
-            params._out['n_s'],
-            params._out['k_pivot'],
-            self.stored['k']*params._out['h'])
+            params['ln_A_s_1e10'],
+            params['n_s'],
+            self.ref['params']['k_pivot'],
+            self.stored['k']*params['h'])
         out *= primordial[:, np.newaxis] / ref_primordial[:, np.newaxis]
 
         return out
@@ -538,30 +540,17 @@ class Pk(Spectrum):
 
         return sigma_R
 
-    def get_As_from_sigma_8(self, sigma8_cb, params):
+    def get_sigma8_cb_from_params(self, params):
         """
-        Get ln_A_s_1e10 from sigma8_cb by shooting method.
+        Get sigma8_cb from params.
          Arguments:
          - params (dict): dictionary with the cosmo parameters.
-         - sigma8_cb (float): target sigma8_cb value.
          Returns:
-         - ln_A_s_1e10 (float): corresponding ln_A_s_1e10 value.
+         - sigma8_cb (float): corresponding sigma8_cb value.
          """
 
-        params_in = params.copy()
-        params_in.pop('sigma8_cb')
-        params_in = Params._add_defaults(
-            params_in, required_params=self.input_params_names)
-
-        def _fun(ln_A_s_1e10):
-            params_in['ln_A_s_1e10'] = ln_A_s_1e10
-            params_obj = Params(params_in, self)
-            sigma8_cb_new = self.get_sigma_R(8, 0.0, params_obj)
-            return sigma8_cb_new - sigma8_cb
-
-        # Find root
-        opt_ln_A_s_1e10 = optimize.root(_fun, 3.0).x[0]
-        return opt_ln_A_s_1e10
+        sigma8_cb = self.get_sigma_R(8., 0.0, params)
+        return sigma8_cb
 
 
 # ------------------- Pk -----------------------------------------------------#
@@ -711,6 +700,10 @@ class Cell(Spectrum):
         x = Spectrum._to_numpy_array(self, x)
         return x.astype(int)
 
+    def _get_values_emu(self, params, **kwargs):
+        vals = [params[p] for p in self.x_names]
+        return np.array(vals)
+
     def get(self, ell, params):
         """
         Main method to get the Cell(ell).
@@ -741,7 +734,7 @@ class Cell(Spectrum):
                     self.stored['ell_indices']]
 
         # Prepare parameters list
-        self.x_values = params.get_values_emu()
+        self.x_values = self._get_values_emu(params)
 
         # Evaluate emulator
         out_emu = self._eval_emu(self.x_values)[self.stored['ell_indices']]
