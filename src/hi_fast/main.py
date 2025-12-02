@@ -18,7 +18,7 @@ class HiFast(object):
         - verbose (bool, default: False): verbosity.
         """
         self.root = root
-        self._emu = {}
+        self._spectra = {}
         if name is not None:
             self._load(name, root=self.root, timeit=timeit, verbose=verbose)
         self._params_obj = None
@@ -49,7 +49,7 @@ class HiFast(object):
             # Load content
             content = emufile.load()
             # Store content
-            self._emu[content['name']] = sp.Spectrum.choose_one(**content)
+            self._spectra[content['name']] = sp.Spectrum.choose_one(**content)
         if verbose:
             io.info('Loaded emulators for {} model'.format(name))
         return
@@ -87,21 +87,21 @@ class HiFast(object):
         if nonlinear:
             raise ValueError('Nonlinear Pk not yet implemented')
 
-        # Select correct emu
-        emu = self._emu['pk_{}'.format(name)]
+        # Select correct spectrum
+        spectrum = self._spectra['pk_{}'.format(name)]
 
         # Create Params instance:
         # 1) convert the input parameters to the ones used internally
         # 2) check input consistency
         # 3) split parameters for emulator and external routines
-        self._params_obj = Params(params, emu, emus_list=self._emu)
+        self._params_obj = Params(params, spectrum, spectra=self._spectra)
 
         # Print parameters if verbose
         if verbose:
-            self._print_input_params(emu.name)
+            self._print_input_params(spectrum.name)
 
         # Get output
-        out = emu.get(k, z, self._params_obj)
+        out = spectrum.get(k, z, self._params_obj)
 
         # Squeeze dimensions
         if squeeze:
@@ -148,21 +148,21 @@ class HiFast(object):
         if nonlinear:
             raise ValueError('Nonlinear Pk not yet implemented')
 
-        # Select correct emu
-        emu = self._emu['fk_{}'.format(name)]
+        # Select correct spectrum
+        spectrum = self._spectra['fk_{}'.format(name)]
 
         # Create Params instance, responsible for:
         # 1) converting the input parameters to the ones used internally
         # 2) checking input consistency
         # 3) splitting parameters for emulator and external routines
-        self._params_obj = Params(params, emu, emus_list=self._emu)
+        self._params_obj = Params(params, spectrum, spectra=self._spectra)
 
         # Print parameters if verbose
         if verbose:
-            self._print_input_params(emu.name)
+            self._print_input_params(spectrum.name)
 
         # Get output
-        out = emu.get(k, z, self._params_obj)
+        out = spectrum.get(k, z, self._params_obj)
 
         # Squeeze dimensions
         if squeeze:
@@ -210,24 +210,24 @@ class HiFast(object):
 
         """
 
-        # Select correct emu
+        # Select correct spectrum
         try:
-            emu = self._emu['cl_{}_lensed'.format(name)]
+            spectrum = self._spectra['cl_{}_lensed'.format(name)]
         except KeyError:
-            emu = self._emu['cl_{}'.format(name)]
+            spectrum = self._spectra['cl_{}'.format(name)]
 
         # Create Params instance, responsible for:
         # 1) converting the input parameters to the ones used internally
         # 2) checking input consistency
         # 3) splitting parameters for emulator and external routines
-        self._params_obj = Params(params, emu, emus_list=self._emu)
+        self._params_obj = Params(params, spectrum, spectra=self._spectra)
 
         # Print parameters if verbose
         if verbose:
-            self._print_input_params(emu.name)
+            self._print_input_params(spectrum.name)
 
         # Get output
-        out = emu.get(ell, self._params_obj)
+        out = spectrum.get(ell, self._params_obj)
 
         # Squeeze dimensions
         if squeeze and out.shape == (1,):
@@ -275,11 +275,11 @@ class HiFast(object):
         if nonlinear:
             raise ValueError('Nonlinear Pk not yet implemented')
 
-        # Select correct emu
-        emu = self._emu['pk_{}'.format(name)]
+        # Select correct spectrum
+        spectrum = self._spectra['pk_{}'.format(name)]
 
         # Get output
-        out = emu.get_from_class(
+        out = spectrum.get_from_class(
             k, z, params, precision=precision, verbose=verbose)
 
         # Squeeze dimensions
@@ -333,11 +333,11 @@ class HiFast(object):
         if nonlinear:
             raise ValueError('Nonlinear Pk not yet implemented')
 
-        # Select correct emu
-        emu = self._emu['fk_{}'.format(name)]
+        # Select correct spectrum
+        spectrum = self._spectra['fk_{}'.format(name)]
 
         # Get output
-        out = emu.get_from_class(
+        out = spectrum.get_from_class(
             k, z, params, precision=precision, verbose=verbose)
 
         # Squeeze dimensions
@@ -392,14 +392,14 @@ class HiFast(object):
 
         """
 
-        # Select correct emu
+        # Select correct spectrum
         try:
-            emu = self._emu['cl_{}_lensed'.format(name)]
+            spectrum = self._spectra['cl_{}_lensed'.format(name)]
         except KeyError:
-            emu = self._emu['cl_{}'.format(name)]
+            spectrum = self._spectra['cl_{}'.format(name)]
 
         # Get output
-        out = emu.get_from_class(
+        out = spectrum.get_from_class(
             ell, params, precision=precision, verbose=verbose)
 
         # Squeeze dimensions
@@ -413,7 +413,7 @@ class HiFast(object):
         Print the input parameters for all loaded emulators.
         """
         io.info('Input parameters for {}:'.format(name))
-        for par in self._emu[name].input_params_names:
+        for par in self._spectra[name].input_params_names:
             msg = ' - {}: {}'.format(par, self._params_obj._out[par])
             for base, der, _ in self._params_obj._conversion_rules(None):
                 if par == base and der in self._params_obj._in:
