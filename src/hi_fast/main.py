@@ -8,7 +8,7 @@ class HiFast(object):
     Main hi_fast class.
     """
 
-    def __init__(self, name=None, root='emu', timeit=False, verbose=False):
+    def __init__(self, name, root='emu', timeit=False, verbose=False):
         """
         Init hi_fast. Arguments:
         - name (str, default: None): name of the model to load. If None
@@ -17,16 +17,17 @@ class HiFast(object):
         - timeit (bool, default: False): print loading time;
         - verbose (bool, default: False): verbosity.
         """
-        self.root = root
-        self._spectra = {}
-        if name is not None:
-            self._load(name, root=self.root, timeit=timeit, verbose=verbose)
-        self._params_obj = None
+        # Load spectra emulators
+        self._spectra = self._load(
+            name, root=root, timeit=timeit, verbose=verbose)
+        # Init parameters handlers
+        self._params = {spec.name: Params(spec, self._spectra)
+                        for spec in self._spectra.values()}
 
         pass
 
     @io.timeit
-    def _load(self, name, root=None, timeit=False, verbose=False):
+    def _load(self, name, root, timeit=False, verbose=False):
         """
         Load all emulators. Arguments:
         - name (str, default: None): name of the model to load. If None
@@ -35,9 +36,8 @@ class HiFast(object):
         - timeit (bool, default: False): print execution time;
         - verbose (bool, default: False): verbosity.
         """
-        # Fix root
-        if root is None:
-            root = self.root
+        # Initialize spectra dictionary
+        spectra = {}
         # Load emulators as dictionary
         for file in io.Folder(name, root=root).list_files():
             # Read content emu
@@ -49,10 +49,10 @@ class HiFast(object):
             # Load content
             content = emufile.load()
             # Store content
-            self._spectra[content['name']] = sp.Spectrum.choose_one(**content)
+            spectra[content['name']] = sp.Spectrum.choose_one(**content)
         if verbose:
             io.info('Loaded emulators for {} model'.format(name))
-        return
+        return spectra
 
     @io.timeit
     def get_pk(
@@ -62,6 +62,8 @@ class HiFast(object):
             params,
             name='m',
             nonlinear=False,
+            check_params_names=True,
+            check_params_values=True,
             squeeze=False,
             verbose=False,
             timeit=False):
@@ -76,6 +78,8 @@ class HiFast(object):
             - cb: CDM+baryons;
             - weyl: Weyl potential.
         - nonlinear (bool, default: False);
+        - check_params_names (bool, default: True): check parameter names;
+        - check_params_values (bool, default: True): check parameter values;
         - squeeze (bool, default: False): squeeze dimensions of output array;
         - verbose (bool, default: False): verbosity;
         - timeit (bool, default: False): print execution time.
@@ -90,18 +94,15 @@ class HiFast(object):
         # Select correct spectrum
         spectrum = self._spectra['pk_{}'.format(name)]
 
-        # Create Params instance:
-        # 1) convert the input parameters to the ones used internally
-        # 2) check input consistency
-        # 3) split parameters for emulator and external routines
-        self._params_obj = Params(params, spectrum, spectra=self._spectra)
-
-        # Print parameters if verbose
-        if verbose:
-            self._print_input_params(spectrum.name)
+        # Get parameters
+        params = self._params[spectrum.name].get(
+            params,
+            check_params_names=check_params_names,
+            check_params_values=check_params_values,
+            verbose=verbose)
 
         # Get output
-        out = spectrum.get(k, z, self._params_obj)
+        out = spectrum.get(k, z, params)
 
         # Squeeze dimensions
         if squeeze:
@@ -122,6 +123,8 @@ class HiFast(object):
             params,
             name='m',
             nonlinear=False,
+            check_params_names=True,
+            check_params_values=True,
             squeeze=False,
             verbose=False,
             timeit=False):
@@ -137,6 +140,8 @@ class HiFast(object):
             - cb: CDM+baryons;
             - weyl: Weyl potential.
         - nonlinear (bool, default: False);
+        - check_params_names (bool, default: True): check parameter names;
+        - check_params_values (bool, default: True): check parameter values;
         - squeeze (bool, default: False): squeeze dimensions of output array;
         - verbose (bool, default: False): verbosity;
         - timeit (bool, default: False): print execution time.
@@ -151,18 +156,15 @@ class HiFast(object):
         # Select correct spectrum
         spectrum = self._spectra['fk_{}'.format(name)]
 
-        # Create Params instance, responsible for:
-        # 1) converting the input parameters to the ones used internally
-        # 2) checking input consistency
-        # 3) splitting parameters for emulator and external routines
-        self._params_obj = Params(params, spectrum, spectra=self._spectra)
-
-        # Print parameters if verbose
-        if verbose:
-            self._print_input_params(spectrum.name)
+        # Get parameters
+        params = self._params[spectrum.name].get(
+            params,
+            check_params_names=check_params_names,
+            check_params_values=check_params_values,
+            verbose=verbose)
 
         # Get output
-        out = spectrum.get(k, z, self._params_obj)
+        out = spectrum.get(k, z, params)
 
         # Squeeze dimensions
         if squeeze:
@@ -181,6 +183,8 @@ class HiFast(object):
             ell,
             params,
             name='TT',
+            check_params_names=True,
+            check_params_values=True,
             squeeze=False,
             verbose=False,
             timeit=False):
@@ -204,10 +208,11 @@ class HiFast(object):
             - T: temperature
             - E, B: polarization
             - p: lensing potential
+        - check_params_names (bool, default: True): check parameter names;
+        - check_params_values (bool, default: True): check parameter values;
         - squeeze (bool, default: False): squeeze dimensions of output array;
         - verbose (bool, default: False): verbosity;
         - timeit (bool, default: False): print execution time.
-
         """
 
         # Select correct spectrum
@@ -216,18 +221,15 @@ class HiFast(object):
         except KeyError:
             spectrum = self._spectra['cl_{}'.format(name)]
 
-        # Create Params instance, responsible for:
-        # 1) converting the input parameters to the ones used internally
-        # 2) checking input consistency
-        # 3) splitting parameters for emulator and external routines
-        self._params_obj = Params(params, spectrum, spectra=self._spectra)
-
-        # Print parameters if verbose
-        if verbose:
-            self._print_input_params(spectrum.name)
+        # Get parameters
+        params = self._params[spectrum.name].get(
+            params,
+            check_params_names=check_params_names,
+            check_params_values=check_params_values,
+            verbose=verbose)
 
         # Get output
-        out = spectrum.get(ell, self._params_obj)
+        out = spectrum.get(ell, params)
 
         # Squeeze dimensions
         if squeeze and out.shape == (1,):
@@ -262,10 +264,11 @@ class HiFast(object):
             - 0: standard class precision;
             - 1: precision parameters used for this emulator;
             - 2: high precision parameters.
-          Eitherwise, it is possible to pass directly a
-          dictionary of precision parameters.
+            Otherwise, it is possible to pass directly a
+            dictionary of precision parameters.
         - nonlinear (bool, default: False);
         - squeeze (bool, default: False): squeeze dimensions of output array;
+        - verbose (bool, default: False): verbosity;
         - timeit (bool, default: False): print execution time.
 
         NOTE: k is in units of h/Mpc. P(k, z) is in units of (Mpc/h)^3.
@@ -320,10 +323,11 @@ class HiFast(object):
             - 0: standard class precision;
             - 1: precision parameters used for this emulator;
             - 2: high precision parameters.
-          Eitherwise, it is possible to pass directly a
-          dictionary of precision parameters.
+            Otherwise, it is possible to pass directly a
+            dictionary of precision parameters.
         - nonlinear (bool, default: False);
         - squeeze (bool, default: False): squeeze dimensions of output array;
+        - verbose (bool, default: False): verbosity;
         - timeit (bool, default: False): print execution time.
 
         NOTE: k is in units of h/Mpc.
@@ -385,11 +389,11 @@ class HiFast(object):
             - 0: standard class precision;
             - 1: precision parameters used for this emulator;
             - 2: high precision parameters.
-          Eitherwise, it is possible to pass directly a
-          dictionary of precision parameters;
+            Otherwise, it is possible to pass directly a
+            dictionary of precision parameters;
         - squeeze (bool, default: False): squeeze dimensions of output array;
+        - verbose (bool, default: False): verbosity;
         - timeit (bool, default: False): print execution time.
-
         """
 
         # Select correct spectrum
@@ -407,17 +411,3 @@ class HiFast(object):
             return out[0]
 
         return out
-
-    def _print_input_params(self, name):
-        """
-        Print the input parameters for all loaded emulators.
-        """
-        io.info('Input parameters for {}:'.format(name))
-        for par in self._spectra[name].input_params_names:
-            msg = ' - {}: {}'.format(par, self._params_obj._out[par])
-            for base, der, _ in self._params_obj._conversion_rules(None):
-                if par == base and der in self._params_obj._in:
-                    msg += '  (from {} = {})'.format(
-                        der, self._params_obj._in[der])
-            print(msg)
-        return
