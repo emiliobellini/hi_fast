@@ -9,7 +9,7 @@ class Params(object):
             self,
             params,
             spectrum,
-            emus_list=None,
+            spectra=None,
             convert=True,
             add_defaults=True,
             check_names=True,
@@ -24,7 +24,7 @@ class Params(object):
 
         if convert is True:
             self._out = self._convert_cosmo_params(
-                self._out, emus_list=emus_list)
+                self._out, spectra=spectra)
 
         if add_defaults is True:
             self._out = Params._add_defaults(
@@ -49,17 +49,17 @@ class Params(object):
             self.idx_z_pk = self._spectrum.x_names.index('z_pk')
         pass
 
-    def _conversion_rules(self, params, emus_list=None):
+    def _conversion_rules(self, params, spectra=None):
         """
         Define conversion rules for cosmological parameters.
         """
 
         # NOTE: make sure that if a conversion rule depends on the value of
         # another parameter, the latter is already converted when needed.
-        if emus_list is None:
+        if spectra is None:
             fs8 = None
         else:
-            fs8 = emus_list['pk_cb'].get_As_from_sigma_8
+            fs8 = spectra['pk_cb'].get_As_from_sigma_8
 
         conversion_rules = [
             # base param, new param, conversion function
@@ -71,13 +71,13 @@ class Params(object):
 
         return conversion_rules
 
-    def _convert_cosmo_params(self, params, emus_list=None):
+    def _convert_cosmo_params(self, params, spectra=None):
         """
         Convert cosmological parameters if needed.
         """
 
         out = params.copy()
-        conversion_rules = self._conversion_rules(out, emus_list=emus_list)
+        conversion_rules = self._conversion_rules(out, spectra=spectra)
 
         for base, new, func in conversion_rules:
             if base not in params and new in out:
