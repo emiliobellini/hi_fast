@@ -17,14 +17,10 @@ from tensorflow import keras
 # ------------------- Folder -------------------------------------------------#
 
 class Folder(object):
-    """
-    Generic class for folders.
-    Here we implemented some ad-hoc method
-    to ease some common task with folders.
+    """Utility wrapper around filesystem directories.
 
-    Arguments:
-        - path (str): path to the folder
-        - should_exist (bool, optional): check that the folder exists
+    The helper exposes convenience methods to list contents, create
+    subfolders, and validate directory existence with consistent logging.
     """
 
     def __repr__(self):
@@ -34,6 +30,13 @@ class Folder(object):
         return str(self.path)
 
     def __init__(self, path, root=None, should_exist=False):
+        """Build a ``Folder`` instance pointing to ``path``.
+
+        Args:
+            path (str): Relative or absolute path to the directory.
+            root (str | None): Optional base directory joined with ``path``.
+            should_exist (bool): When True, raise if the directory is absent.
+        """
         if root is None:
             self.path = os.path.abspath(path)
         else:
@@ -44,20 +47,19 @@ class Folder(object):
             self._exists_or_error()
 
     def _exists_or_error(self):
-        """
-        Check if a folder exists and it is a proper
-        directory, otherwise raise an error.
-        """
+        """Raise ``IOError`` if the directory does not exist."""
         if not os.path.isdir(self.path):
             raise IOError('Folder {} does not exist!'.format(self.path))
         return
 
     def create(self, verbose=False):
-        """
-        Check if a folder exists, otherwise create it.
+        """Create the directory if missing.
+
+        Args:
+            verbose (bool): When True, print a message after creating.
 
         Returns:
-            - self: the same object
+            Folder: ``self`` for easy chaining.
         """
         if not self.exists:
             os.makedirs(self.path)
@@ -68,17 +70,17 @@ class Folder(object):
         return self
 
     def list_files(self, patterns=None, unique=False):
-        """
-        List all files matching any of the patterns (if specified).
+        """Return files inside the folder, optionally filtered.
 
-        Arguments:
-            - patterns (str or list of str, optional): regex patterns
-                (file included if any of them is satisfied)
-            - unique (bool, optional): check if there is more than
-                one file satisfying the patterns
+        Args:
+            patterns (str | list[str] | None): Regular-expression patterns;
+                a file is kept if it matches any entry. ``None`` keeps all
+                files.
+            unique (bool): When True, raise if zero or multiple matches are
+                found.
 
-        Return:
-            - list of files satisfying the pattern
+        Returns:
+            list[str]: Absolute paths of files satisfying the patterns.
         """
         if not self.exists:
             filtered = []
@@ -105,17 +107,16 @@ class Folder(object):
         return filtered
 
     def list_subfolders(self, patterns=None, unique=False):
-        """
-        List all subfolders matching any of the patterns (if specified).
+        """Return child directories, optionally filtered.
 
-        Arguments:
-            - patterns (str or list of str, optional): regex patterns
-                (subfolder included if any of them is satisfied)
-            - unique (bool, optional): check if there is more than
-                one subfolder satisfying the patterns
+        Args:
+            patterns (str | list[str] | None): Regular-expression patterns
+                applied to subfolder paths. ``None`` keeps all.
+            unique (bool): When True, raise if zero or multiple matches are
+                found.
 
-        Return:
-            - list of files satisfying the pattern
+        Returns:
+            list[str]: Absolute paths of matching subfolders.
         """
         if not self.exists:
             filtered = []
@@ -142,11 +143,10 @@ class Folder(object):
         return filtered
 
     def is_empty(self):
-        """
-        Check if a folder is empty or not.
+        """Check whether the directory contains any files.
 
-        Return:
-            - True if folder is empty (or it does not exist), False otherwise
+        Returns:
+            bool: ``True`` when the directory is missing or empty.
         """
         if not self.exists:
             return True
@@ -156,21 +156,26 @@ class Folder(object):
             return True
 
     def subfolder(self, subpath, should_exist=False):
-        """
-        Define subfolder.
+        """Return a ``Folder`` rooted at ``self/subpath``.
+
+        Args:
+            subpath (str): Relative sub-directory.
+            should_exist (bool): When True, ensure the subfolder exists.
 
         Returns:
-            - Folder class for the resulting path
+            Folder: Helper for the nested directory.
         """
         path = os.path.join(self.path, subpath)
         return Folder(path=path, should_exist=should_exist)
 
     def join(self, subpath):
-        """
-        Join folder with subpath.
+        """Join the folder path with ``subpath``.
+
+        Args:
+            subpath (str): Relative fragment appended to ``self.path``.
 
         Returns:
-            - String with location of the resulting path
+            str: Absolute path of the combined location.
         """
         path = os.path.join(self.path, subpath)
         return path
@@ -179,14 +184,7 @@ class Folder(object):
 # ------------------- EmuFile ------------------------------------------------#
 
 class EmuFile(object):
-    """
-    Save and load emulator files.
-
-    Arguments:
-        - fname (str): file name of the emulator;
-        - root (str or Folder class): root for the emualtor;
-        - should_exist (bool, optional): check that the file exists
-    """
+    """Helper for locating, loading, and validating emulator files."""
 
     def __repr__(self):
         return self.path
@@ -195,6 +193,15 @@ class EmuFile(object):
         return str(self.path)
 
     def __init__(self, fname, root=None, should_exist=False):
+        """Create an ``EmuFile`` pointing to ``fname``.
+
+        Args:
+            fname (str): Relative or absolute filename of the emulator
+                metadata bundle.
+            root (str | Folder | None): Optional directory prepended to
+                ``fname``. Passing a ``Folder`` reuses its path attribute.
+            should_exist (bool): When True, raise if the file is missing.
+        """
         # Define path of the emulator file
         if root is None:
             self.path = fname
@@ -214,18 +221,22 @@ class EmuFile(object):
             self._exists_or_error()
 
     def _exists_or_error(self):
-        """
-        Check if the file exists, otherwise raise an error.
-        """
+        """Raise ``IOError`` if the emulator file is absent."""
         if not os.path.isdir(self.path):
             raise IOError('Folder {} does not exist!'.format(self.path))
         return
 
     def _get_path(self, fname, root):
-        """
-        Merge together in a unique string fname and root. Arguments:
-        - fname (str or EmuFile object or None);
-        - root (str or Folder object or None).
+        """Resolve ``fname`` and ``root`` into an absolute path.
+
+        Args:
+            fname (str | EmuFile | None): Optional override for the target
+                file. ``None`` uses ``self.path``.
+            root (str | Folder | None): Optional base directory applied to
+                the resolved ``fname``.
+
+        Returns:
+            str: Absolute filesystem path.
         """
         # Deal with fname
         if fname is None:
@@ -252,9 +263,7 @@ class EmuFile(object):
         return path
 
     def _is_dict_file(self):
-        """
-        Check if the file contains a dictionary.
-        """
+        """Return ``True`` if the serialized payload is a dictionary."""
         try:
             content = joblib.load(self.path)
         except UnpicklingError:
@@ -265,8 +274,17 @@ class EmuFile(object):
             return False
 
     def load(self, fname=None, root=None, verbose=False):
-        """
-        Load content from file.
+        """Load emulator metadata (and Keras model, if present).
+
+        Args:
+            fname (str | EmuFile | None): Optional file override.
+            root (str | Folder | None): Optional base directory combined
+                with ``fname``.
+            verbose (bool): When True, log where the emulator was loaded
+                from.
+
+        Returns:
+            dict: Emulator description pulled from disk.
         """
         # Get path
         path = self._get_path(fname, root)
@@ -291,6 +309,14 @@ class EmuFile(object):
 # ------------------- Scripts ------------------------------------------------#
 
 def timeit(func):
+    """Decorator logging execution time when ``timeit=True``.
+
+    Args:
+        func (Callable): Function to wrap.
+
+    Returns:
+        Callable: Wrapped callable preserving ``func``'s signature.
+    """
     def wrapper_function(*args, **kwargs):
         try:
             dotimeit = kwargs['timeit']
@@ -311,26 +337,38 @@ def timeit(func):
 
 
 def write_red(msg):
+    """Return ``msg`` wrapped in ANSI escape codes for bold red text."""
     return '\033[1;31m{}\033[00m'.format(msg)
 
 
 def write_green(msg):
+    """Return ``msg`` wrapped in ANSI escape codes for bold green text."""
     return '\033[1;32m{}\033[00m'.format(msg)
 
 
 def warning(msg):
+    """Print ``msg`` prefixed with a red ``[WARNING]`` tag."""
     prepend = write_red('[WARNING]')
     print('{} {}'.format(prepend, msg), flush=True)
     return
 
 
 def info(msg):
+    """Print ``msg`` prefixed with a green ``[info]`` tag."""
     prepend = write_green('[info]')
     print('{} {}'.format(prepend, msg), flush=True)
     return
 
 
 def print_level(num, msg, arrow=True):
+    """Pretty-print messages with indentation levels.
+
+    Args:
+        num (int): Indentation level. Each level adds four dashes.
+        msg (str): Message to print.
+        arrow (bool): When True, prepend an arrow marker, otherwise indent
+            with spaces only.
+    """
     if num > 0:
         if arrow:
             prepend = write_green(num*'----' + '> ')

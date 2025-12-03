@@ -4,9 +4,19 @@ from . import io as io
 
 
 class Params(object):
+    """Handle parameter validation and conversions for a spectrum."""
 
     @io.timeit
     def __init__(self, spectrum, spectra, timeit=False):
+        """Create a parameter handler for a given emulator.
+
+        Args:
+            spectrum (sp.Spectrum): Spectrum metadata describing the required
+                inputs, emulator axes, and allowed ranges.
+            spectra (dict[str, sp.Spectrum]): Mapping from spectrum names to
+                spectrum instances, used for cross-spectrum conversions.
+            timeit (bool): Included for the decorator signature; ignored.
+        """
         # Name of the spectrum
         self._spectrum_name = spectrum.name
         # List of spectra classes
@@ -37,15 +47,12 @@ class Params(object):
         pass
 
     def _conversion_rules(self):
-        """
-        Define conversion rules for cosmological parameters.
-        Returns two dictionaries:
-        - standard_rules: direct conversions
-        - shooting_rules: conversions requiring shooting methods.
-        Both dictionaries have the format:
-        {'derived_param': {
-            'base': 'base_param',
-            'func': function_to_convert}}
+        """Return dictionaries describing parameter conversions.
+
+        Returns:
+            tuple[dict, dict]: ``(standard_rules, shooting_rules)`` where each
+            entry maps a derived-parameter name to a dictionary containing the
+            target base parameter and the conversion callable.
         """
 
         # Standard conversions rules. Here the ordering is important,
@@ -97,8 +104,13 @@ class Params(object):
         return standard_rules, shooting_rules
 
     def _print_verbose(self, in_params, out_params):
-        """
-        Print the input parameters for all loaded emulators.
+        """Print the provided and converted parameter values.
+
+        Args:
+            in_params (dict[str, float]): User-supplied parameters, including
+                derived values.
+            out_params (dict[str, float]): Parameters after conversion to the
+                emulator basis.
         """
         io.info('Input parameters for {}:'.format(self._spectrum_name))
         for par in self._required:
@@ -116,11 +128,7 @@ class Params(object):
         return
 
     def print_params(self):
-        """
-        Print parameters info for all or a given spectrum emulator.
-        Arguments:
-        - name (str, default: None): name of the spectrum emulator.
-        """
+        """Print required parameters and their derivable counterparts."""
         io.print_level(1, '--- Spectrum: {} ---'.format(self._spectrum_name))
         for par in self._derived:
             print('  - {}.  Can be derived from: {}'.format(
@@ -128,9 +136,7 @@ class Params(object):
         return
 
     def print_ranges(self):
-        """
-        Print parameter ranges.
-        """
+        """Print emulator parameter ranges sourced from training data."""
         io.print_level(1, '--- Spectrum: {} ---'.format(self._spectrum_name))
         for par in self._required:
             if par in self._ranges:
@@ -141,8 +147,17 @@ class Params(object):
         return
 
     def _shooting(self, params, names, targets, rules):
-        """
-        Perform shooting method to derive parameters.
+        """Apply a multidimensional shooting method for derived params.
+
+        Args:
+            params (dict[str, float]): Current parameter dictionary.
+            names (list[str]): Derived parameters to solve for.
+            targets (list[float]): Target values for each entry in ``names``.
+            rules (dict): Shooting rule metadata (see ``_conversion_rules``).
+
+        Returns:
+            dict[str, float]: Updated parameters dictionary with solved base
+            values.
         """
 
         out = params.copy()
@@ -171,9 +186,14 @@ class Params(object):
         return out
 
     def _check_input_param_names(self, params):
-        """
-        Check that the parameters passed are
-        exactly those expected (not missing, not defined multiple times).
+        """Verify that exactly one representative for each parameter is set.
+
+        Args:
+            params (dict[str, float]): User-provided parameters.
+
+        Raises:
+            Exception: If a required parameter is missing or provided more
+            than once via different derived forms.
         """
 
         for par in self._required:
@@ -189,9 +209,14 @@ class Params(object):
         return
 
     def _check_output_param_values(self, params):
-        """
-        Check that the parameters after conversion are
-        within the emulator range.
+        """Ensure converted parameters lie inside emulator ranges.
+
+        Args:
+            params (dict[str, float]): Parameter dictionary after conversion.
+
+        Raises:
+            Exception: If any emulator parameter is out of its training
+            bounds.
         """
         for par in params:
             if par not in self._emu:
@@ -210,14 +235,21 @@ class Params(object):
             check_params_names=True,
             check_params_values=True,
             verbose=False):
-        """
-        Get parameters for the emulator. Arguments:
-        - params (dict): input parameters (can be derived);
-        - check_params_names (bool, default: True): check parameter names;
-        - check_params_values (bool, default: True): check parameter values;
-        - verbose (bool, default: False): print input and converted parameters.
+        """Convert user parameters into the emulator basis.
+
+        Args:
+            params (dict[str, float]): Input parameters, possibly including
+                derived quantities (e.g., ``H0`` instead of ``h``).
+            check_params_names (bool): When True, ensure exactly one
+                representative per required parameter is provided.
+            check_params_values (bool): When True, verify the converted
+                parameters lie within the emulator training ranges.
+            verbose (bool): When True, print the provided and converted
+                parameters.
+
         Returns:
-        - out (dict): parameters for the emulator."""
+            dict[str, float]: Parameters aligned with the emulator inputs.
+        """
 
         out = params.copy()
 

@@ -4,18 +4,21 @@ from .params import Params
 
 
 class HiFast(object):
-    """
-    Main hi_fast class.
-    """
+    """High-level interface for loading spectra emulators and producing
+    cosmological observables."""
 
     def __init__(self, name, root='emu', timeit=False, verbose=False):
-        """
-        Init hi_fast. Arguments:
-        - name (str, default: None): name of the model to load. If None
-          one has to load manually using the HiFast.load method;
-        - root (str, default: emu): root where the emulators are stored;
-        - timeit (bool, default: False): print loading time;
-        - verbose (bool, default: False): verbosity.
+        """Instantiate the hi_fast interface and preload all requested
+        emulators.
+
+        Args:
+            name (str | None): Emulator family to load (e.g. ``lcdm``).
+                When ``None``, spectra must be loaded manually before
+                evaluation.
+            root (str): Directory containing the emulator bundles.
+            timeit (bool): When True, log how long the loading step takes.
+            verbose (bool): When True, print extra information while
+                loading.
         """
         # Load spectra emulators
         self._spectra = self._load(
@@ -28,13 +31,19 @@ class HiFast(object):
 
     @io.timeit
     def _load(self, name, root, timeit=False, verbose=False):
-        """
-        Load all emulators. Arguments:
-        - name (str, default: None): name of the model to load. If None
-          one has to load manually using the HiFast.load method;
-        - root (str, default: emu): root where the emulators are stored;
-        - timeit (bool, default: False): print execution time;
-        - verbose (bool, default: False): verbosity.
+        """Load every spectrum emulator shipped inside a bundle.
+
+        Args:
+            name (str): Bundle name to load (e.g. ``lcdm``).
+            root (str): Directory that contains the bundle directories or
+                files.
+            timeit (bool): Unused placeholder to keep ``@io.timeit``
+                signature consistent.
+            verbose (bool): When True, report which model was loaded.
+
+        Returns:
+            dict[str, sp.Spectrum]: Mapping from spectrum name to the
+            instantiated emulator object.
         """
         # Initialize spectra dictionary
         spectra = {}
@@ -67,24 +76,38 @@ class HiFast(object):
             squeeze=False,
             verbose=False,
             timeit=False):
-        """
-        Main method to get the power spectrum P(k, z) at some z and k.
-        Arguments:
-        - k (float, list or array): single/list of wavenumbers;
-        - z (float, list or array): single/list of redshift;
-        - params (dict): dictionary with the cosmo parameters;
-        - name (str, default: m): name of the spectrum. Options:
-            - m: total matter;
-            - cb: CDM+baryons;
-            - weyl: Weyl potential.
-        - nonlinear (bool, default: False);
-        - check_params_names (bool, default: True): check parameter names;
-        - check_params_values (bool, default: True): check parameter values;
-        - squeeze (bool, default: False): squeeze dimensions of output array;
-        - verbose (bool, default: False): verbosity;
-        - timeit (bool, default: False): print execution time.
+        """Evaluate the emulator power spectrum ``P(k, z)``.
 
-        NOTE: k is in units of h/Mpc. P(k, z) is in units of (Mpc/h)^3.
+        Args:
+            k (float | sequence[float] | numpy.ndarray): Wavenumbers in
+                units of h/Mpc.
+            z (float | sequence[float] | numpy.ndarray): Redshifts to
+                evaluate.
+            params (dict[str, float]): Cosmological parameters. Each
+                spectrum defines which keys are required and how they are
+                converted.
+            name (str): Spectrum identifier; ``m`` (total matter), ``cb``
+                (CDM plus baryons), or ``weyl`` (Weyl potential).
+            nonlinear (bool): Placeholder flag; nonlinear emulation is not
+                implemented yet.
+            check_params_names (bool): When True, ensure the provided
+                dictionary contains exactly one representative for every
+                required parameter.
+            check_params_values (bool): When True, validate the converted
+                parameters lie inside the emulator training domain.
+            squeeze (bool): When True, drop singleton dimensions in the
+                result for convenience.
+            verbose (bool): When True, echo both provided and converted
+                parameters.
+            timeit (bool): When True, report evaluation time (handled by the
+                decorator).
+
+        Returns:
+            numpy.ndarray or float: Power spectrum values in units of
+            ``(Mpc/h)^3`` matching the broadcast shape of ``k`` and ``z``.
+
+        Raises:
+            ValueError: If ``nonlinear`` is True.
         """
 
         # TODO: implement nonlinear
@@ -128,25 +151,36 @@ class HiFast(object):
             squeeze=False,
             verbose=False,
             timeit=False):
-        """
-        Main method to get the growth rate
-        f(k, z) = dln P(k, z)/dln a at some z and k.
-        Arguments:
-        - k (float, list or array): single/list of wavenumbers;
-        - z (float, list or array): single/list of redshift;
-        - params (dict): dictionary with the cosmo parameters;
-        - name (str, default: m): name of the spectrum. Options:
-            - m: total matter;
-            - cb: CDM+baryons;
-            - weyl: Weyl potential.
-        - nonlinear (bool, default: False);
-        - check_params_names (bool, default: True): check parameter names;
-        - check_params_values (bool, default: True): check parameter values;
-        - squeeze (bool, default: False): squeeze dimensions of output array;
-        - verbose (bool, default: False): verbosity;
-        - timeit (bool, default: False): print execution time.
+        """Evaluate the emulator growth rate
+        ``f(k, z) = d ln P(k, z)/d ln a``.
 
-        NOTE: k is in units of h/Mpc. f(k, z) is dimensionless.
+        Args:
+            k (float | sequence[float] | numpy.ndarray): Wavenumbers in
+                units of h/Mpc.
+            z (float | sequence[float] | numpy.ndarray): Redshifts to
+                evaluate.
+            params (dict[str, float]): Cosmological parameters.
+            name (str): Spectrum identifier; ``m``, ``cb``, or ``weyl``.
+            nonlinear (bool): Placeholder flag; nonlinear emulation is not
+                implemented yet.
+            check_params_names (bool): When True, validate coverage of all
+                required parameters.
+            check_params_values (bool): When True, ensure parameters are in
+                range.
+            squeeze (bool): When True, drop singleton dimensions in the
+                returned array.
+            verbose (bool): When True, echo provided and converted
+                parameters.
+            timeit (bool): When True, report evaluation time.
+
+        The returned growth rate is dimensionless.
+
+        Returns:
+            numpy.ndarray or float: Growth-rate values with the same shape
+            broadcasting rules as ``get_pk``.
+
+        Raises:
+            ValueError: If ``nonlinear`` is True.
         """
 
         # TODO: implement nonlinear
@@ -188,31 +222,26 @@ class HiFast(object):
             squeeze=False,
             verbose=False,
             timeit=False):
-        """
-        Main method to get the Cell at some ell. As in Class,
-        we emulate the dimensionless Cell using:
+        """Return dimensionless CMB angular spectra ``C_ell``.
 
-        ell*(ell+1.)/2./pi * Cl
+        Emulators store and predict ``\\ell(\\ell+1)C_\\ell / (2\\pi)``.
 
-        Arguments:
-        - ell (float, list or array): single/list of ells;
-        - params (dict): dictionary with the cosmo parameters;
-        - name (str, default: m): name of the spectrum. Options:
-            - TT;
-            - TE;
-            - EE;
-            - Tp;
-            - pp;
-            - BB;
-            where:
-            - T: temperature
-            - E, B: polarization
-            - p: lensing potential
-        - check_params_names (bool, default: True): check parameter names;
-        - check_params_values (bool, default: True): check parameter values;
-        - squeeze (bool, default: False): squeeze dimensions of output array;
-        - verbose (bool, default: False): verbosity;
-        - timeit (bool, default: False): print execution time.
+        Args:
+            ell (int | sequence[int] | numpy.ndarray): Multipoles to
+                evaluate.
+            params (dict[str, float]): Cosmological parameters dictionary.
+            name (str): Cl spectrum identifier (``TT``, ``TE``, ``EE``,
+                ``Tp``, ``pp``, ``BB``). Lensed versions are used when
+                available.
+            check_params_names (bool): Validate parameter coverage.
+            check_params_values (bool): Validate converted parameter ranges.
+            squeeze (bool): Return scalars for 1-element outputs.
+            verbose (bool): When True, print provided and derived
+                parameters.
+            timeit (bool): When True, measure call duration.
+
+        Returns:
+            numpy.ndarray or float: Dimensionless angular spectrum values.
         """
 
         # Select correct spectrum
@@ -249,29 +278,32 @@ class HiFast(object):
             squeeze=False,
             verbose=False,
             timeit=False):
-        """
-        Main method to get the power spectrum P(k, z) at some z and k
-        from Class.
-        Arguments:
-        - k (float, list or array): single/list of wavenumbers;
-        - z (float, list or array): single/list of redshift;
-        - params (dict): dictionary with the cosmo parameters;
-        - name (str, default: m): name of the spectrum. Options:
-            - m: total matter;
-            - cb: CDM+baryons;
-            - weyl: Weyl potential.
-        - precision (0, 1, 2, or dict): for default precisions use:
-            - 0: standard class precision;
-            - 1: precision parameters used for this emulator;
-            - 2: high precision parameters.
-            Otherwise, it is possible to pass directly a
-            dictionary of precision parameters.
-        - nonlinear (bool, default: False);
-        - squeeze (bool, default: False): squeeze dimensions of output array;
-        - verbose (bool, default: False): verbosity;
-        - timeit (bool, default: False): print execution time.
+        """Call CLASS to compute ``P(k, z)`` instead of using the emulator.
 
-        NOTE: k is in units of h/Mpc. P(k, z) is in units of (Mpc/h)^3.
+        Args:
+            k (float | sequence[float] | numpy.ndarray): Wavenumbers in
+                units of h/Mpc.
+            z (float | sequence[float] | numpy.ndarray): Redshifts.
+            params (dict[str, float]): Cosmological parameters to forward to
+                CLASS.
+            name (str): Spectrum identifier (``m``, ``cb``, ``weyl``).
+            precision (int | dict[str, float]): Either 0/1/2 to select preset
+                CLASS precision blocks or a dict of CLASS precision
+                settings.
+            nonlinear (bool): Placeholder flag; nonlinear mode is not
+                available.
+            squeeze (bool): Whether to drop singleton dimensions in the
+                response.
+            verbose (bool): When True, pass verbose flag to the spectrum
+                wrapper.
+            timeit (bool): When True, measure call duration.
+
+        Returns:
+            numpy.ndarray or float: Power spectrum values with units
+            ``(Mpc/h)^3``.
+
+        Raises:
+            ValueError: If ``nonlinear`` is True.
         """
 
         # TODO: implement nonlinear
@@ -308,29 +340,32 @@ class HiFast(object):
             squeeze=False,
             verbose=False,
             timeit=False):
-        """
-        Main method to get the growth rate
-        f(k, z) = dln P(k, z)/dln a at some z and k from Class.
-        Arguments:
-        - k (float, list or array): single/list of wavenumbers;
-        - z (float, list or array): single/list of redshift;
-        - params (dict): dictionary with the cosmo parameters;
-        - name (str, default: m): name of the spectrum. Options:
-            - m: total matter;
-            - cb: CDM+baryons;
-            - weyl: Weyl potential.
-        - precision (0, 1, 2, or dict): for default precisions use:
-            - 0: standard class precision;
-            - 1: precision parameters used for this emulator;
-            - 2: high precision parameters.
-            Otherwise, it is possible to pass directly a
-            dictionary of precision parameters.
-        - nonlinear (bool, default: False);
-        - squeeze (bool, default: False): squeeze dimensions of output array;
-        - verbose (bool, default: False): verbosity;
-        - timeit (bool, default: False): print execution time.
+        """Call CLASS to compute the growth rate ``f(k, z)``.
 
-        NOTE: k is in units of h/Mpc.
+        Args:
+            k (float | sequence[float] | numpy.ndarray): Wavenumbers in
+                units of h/Mpc.
+            z (float | sequence[float] | numpy.ndarray): Redshifts.
+            params (dict[str, float]): Cosmological parameters forwarded to
+                CLASS.
+            name (str): Spectrum identifier (``m``, ``cb``, ``weyl``).
+            precision (int | dict[str, float]): CLASS precision settings or
+                preset index.
+            nonlinear (bool): Placeholder flag; nonlinear mode is not
+                available.
+            squeeze (bool): Whether to drop singleton dimensions in the
+                response.
+            verbose (bool): When True, pass verbose flag to the spectrum
+                wrapper.
+            timeit (bool): When True, measure call duration.
+
+        The returned quantity is dimensionless.
+
+        Returns:
+            numpy.ndarray or float: Growth-rate values.
+
+        Raises:
+            ValueError: If ``nonlinear`` is True.
         """
 
         # TODO: implement nonlinear
@@ -365,35 +400,24 @@ class HiFast(object):
             squeeze=False,
             verbose=False,
             timeit=False):
-        """
-        Main method to get the Cell at some ell from Class.
-        As in Class, we emulate the dimensionless Cell using:
+        """Call CLASS to compute CMB angular spectra ``C_ell``.
 
-        ell*(ell+1.)/2./pi * Cl
+        Args:
+            ell (int | sequence[int] | numpy.ndarray): Multipoles.
+            params (dict[str, float]): Cosmological parameters to forward to
+                CLASS.
+            name (str): Cl spectrum identifier (``TT``, ``TE``, ``EE``,
+                ``Tp``, ``pp``, ``BB``). Lensed spectra are selected when
+                present.
+            precision (int | dict[str, float]): Same semantics as
+                :meth:`get_pk_from_class`.
+            squeeze (bool): Return scalars for 1-element outputs.
+            verbose (bool): Forwarded to the spectrum wrapper.
+            timeit (bool): When True, measure call duration.
 
-        Arguments:
-        - ell (float, list or array): single/list of ells;
-        - params (dict): dictionary with the cosmo parameters;
-        - name (str, default: m): name of the spectrum. Options:
-            - TT;
-            - TE;
-            - EE;
-            - Tp;
-            - pp;
-            - BB;
-            where:
-            - T: temperature
-            - E, B: polarization
-            - p: lensing potential
-        - precision (0, 1, 2, or dict): for default precisions use:
-            - 0: standard class precision;
-            - 1: precision parameters used for this emulator;
-            - 2: high precision parameters.
-            Otherwise, it is possible to pass directly a
-            dictionary of precision parameters;
-        - squeeze (bool, default: False): squeeze dimensions of output array;
-        - verbose (bool, default: False): verbosity;
-        - timeit (bool, default: False): print execution time.
+        Returns:
+            numpy.ndarray or float: Dimensionless
+            ``\\ell(\\ell+1)C_\\ell/(2\\pi)`` values.
         """
 
         # Select correct spectrum
@@ -413,10 +437,11 @@ class HiFast(object):
         return out
 
     def print_params(self, name=None):
-        """
-        Print parameters names for all or a given spectrum emulator.
-        Arguments:
-        - name (str, default: None): name of the spectrum emulator.
+        """Print required and derived parameter names for each spectrum.
+
+        Args:
+            name (str | None): Optional spectrum key to restrict the report.
+                When ``None`` every spectrum currently loaded is listed.
         """
         io.info('Input and derived parameters for spectrum emulators:')
         if name is None:
@@ -427,10 +452,11 @@ class HiFast(object):
         return
 
     def print_ranges(self, name=None):
-        """
-        Print parameters ranges for all or a given spectrum emulator.
-        Arguments:
-        - name (str, default: None): name of the spectrum emulator.
+        """Print training ranges of the emulator input parameters.
+
+        Args:
+            name (str | None): Optional spectrum key to restrict the report.
+                When ``None`` every spectrum currently loaded is listed.
         """
         io.info('Ranges of input parameters for spectrum emulators:')
         if name is None:
