@@ -48,14 +48,26 @@ class Params(object):
             'func': function_to_convert}}
         """
 
+        # Standard conversions rules. Here the ordering is important,
+        # e,g, omega_m depends on h, which can be derived from H0.
+        # Them it is necessary to first convert H0 to h, and then
+        # omega_m to Omega_m.
         standard_rules = {
             'H0': {
                 'base': 'h',
-                'func': lambda H0: H0 / 100.
+                'func': lambda H0, _: H0 / 100.
             },
             'A_s': {
                 'base': 'ln_A_s_1e10',
-                'func': lambda A_s: np.log(A_s * 1e10)
+                'func': lambda A_s, _: np.log(A_s * 1e10)
+            },
+            'omega_m': {
+                'base': 'Omega_m',
+                'func': lambda omega_m, current: omega_m / current['h']**2
+            },
+            'omega_b': {
+                'base': 'Omega_b',
+                'func': lambda omega_b, current: omega_b / current['h']**2
             },
         }
 
@@ -220,7 +232,7 @@ class Params(object):
             if par in standard_rules:
                 base = standard_rules[par]['base']
                 func = standard_rules[par]['func']
-                out[base] = func(out[par])
+                out[base] = func(out[par], out)
                 out.pop(par)
             if par in shooting_rules:
                 shoot_on_name.append(par)
