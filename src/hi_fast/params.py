@@ -84,7 +84,7 @@ class Params(object):
 
         return standard_rules, shooting_rules
 
-    def _print(self, in_params, out_params):
+    def _print_verbose(self, in_params, out_params):
         """
         Print the input parameters for all loaded emulators.
         """
@@ -101,6 +101,31 @@ class Params(object):
                     if shooting_rules[der]['base'] == par:
                         msg += '  (from {} = {})'.format(der, in_params[der])
             print(msg)
+        return
+
+    def print_params(self):
+        """
+        Print parameters info for all or a given spectrum emulator.
+        Arguments:
+        - name (str, default: None): name of the spectrum emulator.
+        """
+        io.print_level(1, '--- Spectrum: {} ---'.format(self._spectrum_name))
+        for par in self._derived:
+            print('  - {}.  Can be derived from: {}'.format(
+                par, self._derived[par]))
+        return
+
+    def print_ranges(self):
+        """
+        Print parameter ranges.
+        """
+        io.print_level(1, '--- Spectrum: {} ---'.format(self._spectrum_name))
+        for par in self._required:
+            if par in self._ranges:
+                low, high = self._ranges[par]
+                print('  - {}: [{}, {}]'.format(par, low, high))
+            else:
+                print('  - {}: unbounded'.format(par))
         return
 
     def _shooting(self, params, names, targets, rules):
@@ -209,6 +234,6 @@ class Params(object):
             self._check_output_param_values(out)
 
         if verbose:
-            self._print(params, out)
+            self._print_verbose(params, out)
 
         return out

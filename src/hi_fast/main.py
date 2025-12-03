@@ -411,3 +411,31 @@ class HiFast(object):
             return out[0]
 
         return out
+
+    def print_params(self, name=None):
+        """
+        Print parameters names for all or a given spectrum emulator.
+        Arguments:
+        - name (str, default: None): name of the spectrum emulator.
+        """
+        io.info('Input and derived parameters for spectrum emulators:')
+        if name is None:
+            for spec in self._spectra:
+                self._params[spec].print_params()
+        else:
+            self._params[name].print_params()
+        return
+
+    def print_ranges(self, name=None):
+        """
+        Print parameters ranges for all or a given spectrum emulator.
+        Arguments:
+        - name (str, default: None): name of the spectrum emulator.
+        """
+        io.info('Ranges of input parameters for spectrum emulators:')
+        if name is None:
+            for spec in self._spectra:
+                self._params[spec].print_ranges()
+        else:
+            self._params[name].print_ranges()
+        return
