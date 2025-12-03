@@ -9,8 +9,17 @@ from .scalers import Scaler
 # ------------------- Spectrum -----------------------------------------------#
 
 class Spectrum(object):
+    """Base spectrum emulator containing shared logic for Pk/Fk/Cl."""
 
     def __init__(self, **kwargs):
+        """Rehydrate a spectrum emulator from serialized metadata.
+
+        Args:
+            **kwargs: Keyword arguments produced by the training pipeline.
+                Required keys include ``name``, ``x_names``, ``x_ranges``,
+                scaler/PCA configs, the trained ``model``, reference spectra,
+                and CLASS arguments.
+        """
         # Name of the spectrum (str)
         self.name = kwargs['name']
         # Parameters names needed by the emulator (list of str)
@@ -64,6 +73,14 @@ class Spectrum(object):
         pass
 
     def _to_numpy_array(self, x):
+        """Convert scalars/lists into numpy arrays.
+
+        Args:
+            x (int | float | list | numpy.ndarray): Input values.
+
+        Returns:
+            numpy.ndarray: Array with float values.
+        """
         if isinstance(x, float):
             x = np.array([x])
         elif isinstance(x, int):
@@ -73,9 +90,14 @@ class Spectrum(object):
         return x
 
     def _is_same_array(self, x, x_ref):
-        """
-        Check if an array k, or z, are the same as the ones stored
-        to avoid reinterpolation of reference spectra.
+        """Return ``True`` when ``x`` matches the cached reference array.
+
+        Args:
+            x (numpy.ndarray): Current values.
+            x_ref (numpy.ndarray | None): Cached values.
+
+        Returns:
+            bool: ``True`` when both arrays are equal.
         """
         if x_ref is None:
             return False
@@ -84,15 +106,16 @@ class Spectrum(object):
 
     @staticmethod
     def choose_one(**kwargs):
-        """
-        Main function to get the correct Spectrum.
+        """Instantiate the appropriate spectrum subclass.
 
-        Arguments:
-            - spectrum_type (str): type of spectrum.
+        Args:
+            **kwargs: Serialized spectrum metadata including ``name``.
 
-        Return:
-            - Spectrum (object): get the correct
-              spectrum and initialize it.
+        Returns:
+            Spectrum: Concrete `Pk`, `Fk`, or `Cell` instance.
+
+        Raises:
+            ValueError: If the spectrum name does not match known prefixes.
         """
         # Pk
         if kwargs['name'].startswith('pk_'):
@@ -109,13 +132,14 @@ class Spectrum(object):
 
     @io.timeit
     def _eval_emu(self, x, timeit=False):
-        """
-        Evaluate the emulator at a given point.
-        Arguments:
-        - x (array or list): these are the input parameters.
-          They can be passed as an array or as a dictionary
-          with the names of x as keys.
-        It returns the value(s) for y
+        """Evaluate the neural-network emulator at ``x``.
+
+        Args:
+            x (array-like): Emulator inputs ordered according to ``x_names``.
+            timeit (bool): Included for decorator compatibility; unused.
+
+        Returns:
+            numpy.ndarray: Emulator prediction in physical units.
         """
 
         # Scale x
@@ -149,6 +173,23 @@ class Spectrum(object):
 
     def _get_input_params_class(
             self, params, precision, class_args, verbose=False):
+        """Prepare input parameters for a CLASS run.
+
+        Args:
+            params (dict[str, float]): Cosmological parameters in hi_fast
+                nomenclature.
+            precision (int | dict[str, float]): Either 0/1/2 for preset
+                precision configs or a dict of CLASS precision overrides.
+            class_args (dict[str, float]): Baseline CLASS arguments gathered
+                from training metadata.
+            verbose (bool): When True, request verbose CLASS output.
+
+        Returns:
+            dict[str, float]: Combined dictionary ready to pass to CLASS.
+
+        Raises:
+            Exception: If ``precision`` is neither {0,1,2} nor a dict.
+        """
 
         params_in = params.copy()
 
@@ -214,6 +255,7 @@ class Spectrum(object):
 # ------------------- Pk -----------------------------------------------------#
 
 class Pk(Spectrum):
+    """Matter or Weyl-power-spectrum emulator."""
 
     def __init__(self, **kwargs):
         Spectrum.__init__(self, **kwargs)
@@ -244,8 +286,13 @@ class Pk(Spectrum):
         pass
 
     def _check_k_values(self, k):
-        """
-        Check that k is within the emulator range.
+        """Ensure wavenumbers stay inside the training range.
+
+        Args:
+            k (numpy.ndarray): Wavenumbers in h/Mpc.
+
+        Raises:
+            Exception: If any value falls outside ``[k_min, k_max]``.
         """
         if k.min() < self.k_min or k.max() > self.k_max:
             raise Exception(
@@ -254,8 +301,13 @@ class Pk(Spectrum):
         return
 
     def _check_z_values(self, z):
-        """
-        Check that z is within the emulator range.
+        """Ensure redshifts stay inside the training range.
+
+        Args:
+            z (numpy.ndarray): Redshifts.
+
+        Raises:
+            Exception: If any value falls outside ``[z_min, z_max]``.
         """
         if z.min() < self.z_min or z.max() > self.z_max:
             raise Exception(
@@ -264,20 +316,30 @@ class Pk(Spectrum):
         return
 
     def _get_values_emu(self, params, **kwargs):
+        """Assemble emulator inputs for a specific redshift.
+
+        Args:
+            params (dict[str, float]): Cosmological parameters.
+            **kwargs: Expected to contain ``z_pk`` for the target slice.
+
+        Returns:
+            numpy.ndarray: Ordered emulator inputs.
+        """
         vals = [
             params[p] if p != 'z_pk' else None for p in self.x_names]
         vals[self.x_names.index('z_pk')] = kwargs['z_pk']
         return np.array(vals)
 
     def _sigma_R_integral(self, k, pk, R):
-        """
-        Compute sigma_R integral.
-        Arguments:
-        - k (array): wavenumbers in h/Mpc;
-        - pk (array): power spectrum at k in (Mpc/h)^3;
-        - R (float): smoothing scale in Mpc/h.
+        """Compute ``sigma_R`` via the standard top-hat integral.
+
+        Args:
+            k (numpy.ndarray): Wavenumbers in h/Mpc.
+            pk (numpy.ndarray): Power spectrum in ``(Mpc/h)^3``.
+            R (float): Smoothing scale in Mpc/h.
+
         Returns:
-        - sigma_R (float): sigma_R value.
+            float: ``sigma_R`` value.
         """
 
         # Window function
@@ -292,15 +354,16 @@ class Pk(Spectrum):
         return sigma_R
 
     def _get_primordial_pk(self, ln_A_s_1e10, n_s, k_pivot, k):
-        """
-        Get primordial power spectrum at given k.
-        Arguments:
-        - ln_A_s_1e10 (float): log amplitude of primordial spectrum;
-        - n_s (float): spectral index;
-        - k_pivot (float): pivot scale in h/Mpc;
-        - k (array): wavenumbers in h/Mpc.
+        """Return the primordial power spectrum evaluated at ``k``.
+
+        Args:
+            ln_A_s_1e10 (float): Unnormalized log amplitude.
+            n_s (float): Scalar spectral index.
+            k_pivot (float): Pivot scale in h/Mpc.
+            k (numpy.ndarray): Target wavenumbers in h/Mpc.
+
         Returns:
-        - P_primordial (array): primordial power spectrum at k.
+            numpy.ndarray: Primordial spectrum values.
         """
 
         log_P_1e10 = ln_A_s_1e10 + (n_s-1.)*np.log(k/k_pivot)
@@ -309,17 +372,18 @@ class Pk(Spectrum):
         return P_primordial
 
     def _get_weyl_pk(self, k, z, n_k, n_z, n_mu):
-        """
-        Get nonlinear Weyl power spectrum from Class.
-        Arguments:
-        - k (array): wavenumbers in 1/Mpc. To be consistent with
-          the other calls, it has to be 3D;
-        - z (array): redshifts;
-        - n_k (int): number of k values;
-        - n_z (int): number of z values;
-        - n_mu (int): number of mu values.
+        """Return the nonlinear Weyl power spectrum from CLASS.
+
+        Args:
+            k (numpy.ndarray): Wavenumbers in 1/Mpc with shape
+                ``(n_k, n_z, n_mu)``.
+            z (numpy.ndarray): Redshift samples.
+            n_k (int): Number of k values.
+            n_z (int): Number of z values.
+            n_mu (int): Number of mu values.
+
         Returns:
-        - P_weyl (array): Weyl power spectrum at k and z.
+            numpy.ndarray: Weyl power spectrum evaluated at ``k`` and ``z``.
         """
 
         # TODO: for now we just call the linear one
@@ -328,16 +392,18 @@ class Pk(Spectrum):
         return pk
 
     def _get_weyl_pk_lin(self, k, z, n_k, n_z, n_mu):
-        """
-        Get linear Weyl power spectrum from Class.
-        Arguments:
-        - k (array): wavenumbers in 1/Mpc;
-        - z (array): redshifts;
-        - n_k (int): number of k values;
-        - n_z (int): number of z values;
-        - n_mu (int): number of mu values.
+        """Return the linear Weyl spectrum from CLASS.
+
+        Args:
+            k (numpy.ndarray): Wavenumbers in 1/Mpc with shape
+                ``(n_k, n_z, n_mu)``.
+            z (numpy.ndarray): Redshift samples.
+            n_k (int): Number of k samples.
+            n_z (int): Number of redshift samples.
+            n_mu (int): Number of angular samples.
+
         Returns:
-        - P_weyl (array): Weyl power spectrum at k and z.
+            numpy.ndarray: Linear Weyl power spectrum.
         """
         pk_array, k_array, z_array = self.cosmo.get_Weyl_pk_and_k_and_z(
             nonlinear=False,
@@ -357,14 +423,18 @@ class Pk(Spectrum):
         return pk
 
     def _get_pk_or_fk_common(self, k, z, params, nonlinear=False):
-        """
-        Common steps to get pk or fk from the emulator
-        Arguments:
-        - k (float, list or array): single/list of wavenumbers;
-        - z (float, list or array): single/list of redshift;
-        - params (dict): dictionary with the cosmo parameters.
+        """Shared preprocessing for Pk and Fk emulator calls.
 
-        NOTE: k is in units of h/Mpc. P(k, z) is in units of (Mpc/h)^3.
+        Args:
+            k (float | list | numpy.ndarray): Wavenumbers in h/Mpc.
+            z (float | list | numpy.ndarray): Redshifts.
+            params (dict[str, float]): Cosmological parameters.
+            nonlinear (bool): Placeholder flag (nonlinear not supported).
+
+        Returns:
+            tuple[numpy.ndarray, dict[str, float]]: Interpolated emulator
+            output evaluated at ``k``/``z`` plus the possibly adjusted
+            parameters dictionary.
         """
 
         # Check k
@@ -417,15 +487,19 @@ class Pk(Spectrum):
         return out, params
 
     def get(self, k, z, params, nonlinear=False):
-        """
-        Main method to get the power spectrum P(k, z) or the
-        growth rate f(k, z) = dln P(k, z)/dln a at some z and k.
-        Arguments:
-        - k (float, list or array): single/list of wavenumbers;
-        - z (float, list or array): single/list of redshift;
-        - params (dict): dictionary with the cosmo parameters.
+        """Evaluate the emulator power spectrum ``P(k, z)``.
 
-        NOTE: k is in units of h/Mpc. P(k, z) is in units of (Mpc/h)^3.
+        Args:
+            k (float | list | numpy.ndarray): Wavenumbers in h/Mpc.
+            z (float | list | numpy.ndarray): Redshifts.
+            params (dict[str, float]): Cosmological parameters dictionary.
+            nonlinear (bool): Placeholder flag (nonlinear not supported).
+
+        Returns:
+            numpy.ndarray: Power spectrum with units ``(Mpc/h)^3``.
+
+        Raises:
+            ValueError: If ``nonlinear`` is True.
         """
 
         # TODO: implement nonlinear
@@ -453,26 +527,19 @@ class Pk(Spectrum):
 
     def get_from_class(
             self, k, z, params, nonlinear=False, precision=0, verbose=False):
-        """
-        Main method to get the power spectrum P(k, z) or the
-        growth rate f(k, z) = dln P(k, z)/dln a at some z and k
-        from Class.
-        Arguments:
-        - k (float, list or array): single/list of wavenumbers;
-        - z (float, list or array): single/list of redshift;
-        - params (dict): dictionary with the cosmo parameters;
-        - precision (0, 1, 2, or dict): for default precisions use:
-            - 0: standard class precision;
-            - 1: precision parameters used for this emulator;
-            - 2: high precision parameters.
-          Eitherwise, it is possible to pass directly a
-          dictionary of precision parameters.
+        """Compute ``P(k, z)`` or ``f(k, z)`` directly with CLASS.
 
-        NOTE: k is in units of h/Mpc. P(k, z) is in units of (Mpc/h)^3.
-        NOTE: If k and z remains unchanged, i.e. we are varying only
-        the parameters, the computation is much faster, since there
-        is not need to interpolate the reference spectra (for the
-        spectra we emulate the ratio) again.
+        Args:
+            k (float | list | numpy.ndarray): Wavenumbers in h/Mpc.
+            z (float | list | numpy.ndarray): Redshifts.
+            params (dict[str, float]): Cosmological parameters.
+            nonlinear (bool): Placeholder flag (nonlinear not yet supported).
+            precision (int | dict[str, float]): CLASS precision preset or
+                overrides.
+            verbose (bool): When True, enable verbose CLASS logs.
+
+        Returns:
+            numpy.ndarray: Spectrum values in ``(Mpc/h)^3``.
         """
 
         # TODO: implement nonlinear
@@ -524,14 +591,16 @@ class Pk(Spectrum):
         return out
 
     def get_sigma_R(self, R, z, params, nonlinear=False):
-        """
-        Main method to get sigma_R(R, z).
-        Arguments:
-        - R (float): smoothing scale in Mpc/h;
-        - z (float): redshift;
-        - params (dict): dictionary with the cosmo parameters.
+        """Return ``sigma_R`` evaluated at smoothing scale ``R``.
 
-        NOTE: P(k, z) is in units of (Mpc/h)^3.
+        Args:
+            R (float): Smoothing scale in Mpc/h.
+            z (float): Redshift.
+            params (dict[str, float]): Cosmological parameters.
+            nonlinear (bool): Placeholder flag (nonlinear not supported).
+
+        Returns:
+            float: ``sigma_R`` value.
         """
 
         # Use the reference k array
@@ -546,25 +615,27 @@ class Pk(Spectrum):
         return sigma_R
 
     def get_sigma8_from_params(self, params):
+        """Return ``sigma_8`` for the provided parameters.
+
+        Args:
+            params (dict[str, float]): Cosmological parameters.
+
+        Returns:
+            float: Corresponding ``sigma_8`` value.
         """
-        Get sigma8_cb from params.
-         Arguments:
-         - params (dict): dictionary with the cosmo parameters.
-         Returns:
-         - sigma8_cb (float): corresponding sigma8_cb value.
-         """
 
         sigma8 = self.get_sigma_R(8., 0.0, params)
         return sigma8
 
     def get_S8_from_params(self, params):
+        """Return ``S_8 = sigma_8 * sqrt(Omega_m/0.3)``.
+
+        Args:
+            params (dict[str, float]): Cosmological parameters.
+
+        Returns:
+            float: Corresponding ``S_8`` value.
         """
-        Get sigma8_cb from params.
-         Arguments:
-         - params (dict): dictionary with the cosmo parameters.
-         Returns:
-         - sigma8_cb (float): corresponding sigma8_cb value.
-         """
 
         sigma8 = self.get_sigma_R(8., 0.0, params)
         return sigma8 * np.sqrt(params['Omega_m']/0.3)
@@ -573,6 +644,7 @@ class Pk(Spectrum):
 # ------------------- Pk -----------------------------------------------------#
 
 class Fk(Pk):
+    """Growth-rate emulator using the same infrastructure as ``Pk``."""
 
     def __init__(self, **kwargs):
         Pk.__init__(self, **kwargs)
@@ -583,18 +655,16 @@ class Fk(Pk):
         pass
 
     def get(self, k, z, params, nonlinear=False):
-        """
-        Main method to get the growth rate f(k, z) = dln P(k, z)/dln a
-        at some z and k. Arguments:
-        - k (float, list or array): single/list of wavenumbers;
-        - z (float, list or array): single/list of redshift;
-        - params (dict): dictionary with the cosmo parameters.
+        """Evaluate the emulator growth rate ``f(k, z)``.
 
-        NOTE: k is in units of h/Mpc.
-        NOTE: If k and z remains unchanged, i.e. we are varying only
-        the parameters, the computation is much faster, since there
-        is not need to interpolate the reference spectra (for the
-        spectra we emulate the ratio) again.
+        Args:
+            k (float | list | numpy.ndarray): Wavenumbers in h/Mpc.
+            z (float | list | numpy.ndarray): Redshifts.
+            params (dict[str, float]): Cosmological parameters.
+            nonlinear (bool): Placeholder flag (nonlinear not supported).
+
+        Returns:
+            numpy.ndarray: Growth rate values.
         """
 
         out, _ = self._get_pk_or_fk_common(k, z, params, nonlinear=nonlinear)
@@ -603,22 +673,18 @@ class Fk(Pk):
 
     def get_from_class(
             self, k, z, params, nonlinear=False, precision=0, verbose=False):
-        """
-        Main method to get the power spectrum P(k, z) or the
-        growth rate f(k, z) = dln P(k, z)/dln a at some z and k
-        from Class.
-        Arguments:
-        - k (float, list or array): single/list of wavenumbers;
-        - z (float, list or array): single/list of redshift;
-        - params (dict): dictionary with the cosmo parameters;
-        - precision (0, 1, 2, or dict): for default precisions use:
-            - 0: standard class precision;
-            - 1: precision parameters used for this emulator;
-            - 2: high precision parameters.
-          Eitherwise, it is possible to pass directly a
-          dictionary of precision parameters.
+        """Compute ``f(k, z)`` by differentiating CLASS power spectra.
 
-        NOTE: k is in units of h/Mpc. P(k, z) is in units of (Mpc/h)^3.
+        Args:
+            k (float | list | numpy.ndarray): Wavenumbers in h/Mpc.
+            z (float | list | numpy.ndarray): Redshifts.
+            params (dict[str, float]): Cosmological parameters.
+            nonlinear (bool): Whether to use nonlinear spectra.
+            precision (int | dict[str, float]): CLASS precision settings.
+            verbose (bool): When True, enable verbose CLASS logs.
+
+        Returns:
+            numpy.ndarray: Growth-rate values derived from CLASS outputs.
         """
 
         # TODO: implement nonlinear
@@ -678,6 +744,7 @@ class Fk(Pk):
 # ------------------- Cell ---------------------------------------------------#
 
 class Cell(Spectrum):
+    """Angular CMB spectrum emulator."""
 
     def __init__(self, **kwargs):
         Spectrum.__init__(self, **kwargs)
@@ -704,8 +771,13 @@ class Cell(Spectrum):
         pass
 
     def _check_ell_values(self, ell):
-        """
-        Check that ell is within the emulator range.
+        """Ensure multipoles fall within the emulator range.
+
+        Args:
+            ell (numpy.ndarray): Multipoles.
+
+        Raises:
+            Exception: If ``ell`` extends beyond ``[ell_min, ell_max]``.
         """
         if ell.min() < self.ell_min or ell.max() > self.ell_max:
             raise Exception(
@@ -718,15 +790,27 @@ class Cell(Spectrum):
         return x.astype(int)
 
     def _get_values_emu(self, params, **kwargs):
+        """Pack emulator inputs for ``Cell`` spectra.
+
+        Args:
+            params (dict[str, float]): Cosmological parameters.
+
+        Returns:
+            numpy.ndarray: Ordered emulator inputs.
+        """
         vals = [params[p] for p in self.x_names]
         return np.array(vals)
 
     def get(self, ell, params):
-        """
-        Main method to get the Cell(ell).
-        Arguments:
-        - ell (float, list or array): single/list of wavenumbers;
-        - params (dict): dictionary with the cosmo parameters.
+        """Evaluate the emulator angular spectrum ``C_ell``.
+
+        Args:
+            ell (int | list[int] | numpy.ndarray): Multipoles.
+            params (dict[str, float]): Cosmological parameters.
+
+        Returns:
+            numpy.ndarray: Dimensionless
+            ``\\ell(\\ell+1)C_\\ell/(2\\pi)``.
         """
 
         # Check ell
@@ -765,17 +849,16 @@ class Cell(Spectrum):
         return out
 
     def get_from_class(self, ell, params, precision=0, verbose=False):
-        """
-        Main method to get the Cell(ell) from Class.
-        Arguments:
-        - ell (float, list or array): single/list of wavenumbers;
-        - params (dict): dictionary with the cosmo parameters.
-        - precision (0, 1, 2, or dict): for default precisions use:
-            - 0: standard class precision;
-            - 1: precision parameters used for this emulator;
-            - 2: high precision parameters.
-          Eitherwise, it is possible to pass directly a
-          dictionary of precision parameters.
+        """Compute ``C_ell`` directly with CLASS.
+
+        Args:
+            ell (int | list[int] | numpy.ndarray): Multipoles.
+            params (dict[str, float]): Cosmological parameters.
+            precision (int | dict[str, float]): CLASS precision settings.
+            verbose (bool): When True, enable verbose CLASS logs.
+
+        Returns:
+            numpy.ndarray: Dimensionless angular spectra.
         """
 
         ell = self._to_numpy_array(ell)

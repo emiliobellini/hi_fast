@@ -11,26 +11,27 @@ import sklearn.preprocessing as skl_pre
 
 
 class Scaler(object):
-    """
-    Base Scaler class.
-    Each one of the other scalers (see below), should
-    inherit from this and define three other methods:
-    - transform: transform data using fitted scaler
-    - inverse_transform: transform back data.
-    """
+    """Base class for all scalers used by the emulator pipeline."""
 
     def __init__(self, **kwargs):
+        """Record the scaler name/type from serialized metadata.
+
+        Args:
+            **kwargs: Keyword arguments loaded from disk. Must include a
+                ``type`` field identifying the scaler variant.
+        """
         self.name = kwargs['type']
         return
 
     def _replace_inf(self, x, factor=10.):
-        """
-        This is used to replace infinities with
-        large numbers. In practice, given an array x,
-        it takes the maximum value of abs(x) and
-        multiplies it by 'factor'. The resulting
-        number is going to replace all infinities
-        (with the correct sign).
+        """Replace infinities by large finite values.
+
+        Args:
+            x (numpy.ndarray): Input array.
+            factor (float): Multiplier applied to the largest finite value.
+
+        Returns:
+            numpy.ndarray: Array with ``inf`` replaced while preserving sign.
         """
         signs = np.sign(x)
         x_new = np.abs(x)
@@ -43,15 +44,18 @@ class Scaler(object):
 
     @staticmethod
     def choose_one(**kwargs):
-        """
-        Main function to get the correct Scaler.
+        """Instantiate the appropriate scaler based on serialized metadata.
 
-        Arguments:
-            - scaler_type (str): type of scaler.
+        Args:
+            **kwargs: Serialized scaler parameters that must include
+                ``type`` identifying the scaler class.
 
-        Return:
-            - Scaler (object): get the correct
-              scaler and initialize it.
+        Returns:
+            Scaler | None: Concrete scaler instance or ``None`` for
+            ``NoneScaler``.
+
+        Raises:
+            ValueError: If ``type`` does not match any known scaler.
         """
         if kwargs['type'] == 'None' or kwargs['type'] is None:
             return NoneScaler(**kwargs)
@@ -73,29 +77,16 @@ class Scaler(object):
             raise ValueError('Scaler not recognized!')
 
     def transform(self, x):
-        """
-        Transform an array x into the corresponding
-        x_scaled, using results from the fit method.
-        NOTE: If you want to implement a new scaler
-        return a new rescaled array.
-        """
+        """Placeholder to be overridden by subclasses."""
         return None
 
     def inverse_transform(self, x_scaled):
-        """
-        Transform back an array x_scaled into
-        the corresponding x, using results from
-        the fit method.
-        NOTE: If you want to implement a new scaler
-        return a new inverse rescaled array.
-        """
+        """Placeholder to be overridden by subclasses."""
         return None
 
 
 class NoneScaler(Scaler):
-    """
-    Do not rescale.
-    """
+    """No-op scaler useful for debugging or optional preprocessing."""
 
     def __init__(self, **kwargs):
         Scaler.__init__(self, **kwargs)
@@ -103,6 +94,15 @@ class NoneScaler(Scaler):
         return
 
     def transform(self, x, replace_infinity=True):
+        """Return input as-is, optionally replacing infinities.
+
+        Args:
+            x (numpy.ndarray): Input data.
+            replace_infinity (bool): When True, call ``_replace_inf`` first.
+
+        Returns:
+            numpy.ndarray: Possibly sanitized copy of ``x``.
+        """
         if replace_infinity:
             x_scaled = self._replace_inf(x)
         else:
@@ -114,10 +114,8 @@ class NoneScaler(Scaler):
 
 
 class StandardScaler(Scaler):
-    """
-    Standardise features by removing the
-    mean and scaling to unit variance.
-    """
+    """Standardize features by removing the mean and scaling to unit
+    variance."""
 
     def __init__(self, **kwargs):
         Scaler.__init__(self, **kwargs)
@@ -130,6 +128,7 @@ class StandardScaler(Scaler):
         return
 
     def transform(self, x, replace_infinity=True):
+        """Apply scikit-learn standard scaling after sanitizing infinities."""
         if replace_infinity:
             x_scaled = self._replace_inf(x)
         else:
@@ -138,15 +137,13 @@ class StandardScaler(Scaler):
         return x_scaled
 
     def inverse_transform(self, x_scaled):
+        """Undo the standard scaling operation."""
         x = self.skl_scaler.inverse_transform(x_scaled)
         return x
 
 
 class LogStandardScaler(Scaler):
-    """
-    Take the log of the features and then standardise them
-    by removing the mean and scaling to unit variance.
-    """
+    """Log-transform followed by standard scaling."""
 
     def __init__(self, **kwargs):
         Scaler.__init__(self, **kwargs)
@@ -159,6 +156,7 @@ class LogStandardScaler(Scaler):
         return
 
     def transform(self, x, replace_infinity=True):
+        """Log the input and apply standard scaling."""
         if replace_infinity:
             x_scaled = self._replace_inf(x)
         else:
@@ -167,15 +165,13 @@ class LogStandardScaler(Scaler):
         return x_scaled
 
     def inverse_transform(self, x_scaled):
+        """Undo scaling and exponential to recover original values."""
         x = np.exp(self.skl_scaler.inverse_transform(x_scaled))
         return x
 
 
 class MinusLogStandardScaler(Scaler):
-    """
-    Take the log of the features and then standardise them
-    by removing the mean and scaling to unit variance.
-    """
+    """Log-transform the negated input, then apply standard scaling."""
 
     def __init__(self, **kwargs):
         Scaler.__init__(self, **kwargs)
@@ -188,6 +184,7 @@ class MinusLogStandardScaler(Scaler):
         return
 
     def transform(self, x, replace_infinity=True):
+        """Apply log-scaling to the negative input before standardization."""
         if replace_infinity:
             x_scaled = self._replace_inf(x)
         else:
@@ -196,15 +193,13 @@ class MinusLogStandardScaler(Scaler):
         return x_scaled
 
     def inverse_transform(self, x_scaled):
+        """Recover the original values by undoing scaling and log."""
         x = -np.exp(self.skl_scaler.inverse_transform(x_scaled))
         return x
 
 
 class MinMaxScaler(Scaler):
-    """
-    Transform features by scaling each
-    feature to the (0, 1) range.
-    """
+    """Scale each feature to the ``(0, 1)`` interval."""
 
     def __init__(self, **kwargs):
         Scaler.__init__(self, **kwargs)
@@ -219,6 +214,7 @@ class MinMaxScaler(Scaler):
         return
 
     def transform(self, x, replace_infinity=True):
+        """Apply min-max scaling after optional infinity replacement."""
         if replace_infinity:
             x_scaled = self._replace_inf(x)
         else:
@@ -227,15 +223,13 @@ class MinMaxScaler(Scaler):
         return x_scaled
 
     def inverse_transform(self, x_scaled):
+        """Undo the min-max scaling."""
         x = self.skl_scaler.inverse_transform(x_scaled)
         return x
 
 
 class MinMaxCommonScaler(Scaler):
-    """
-    Transform features by scaling each
-    feature to the (0, 1) range common to all.
-    """
+    """Apply a global (feature-shared) min-max scaling."""
 
     def __init__(self, **kwargs):
         Scaler.__init__(self, **kwargs)
@@ -245,6 +239,7 @@ class MinMaxCommonScaler(Scaler):
         return
 
     def transform(self, x, replace_infinity=True):
+        """Scale using shared ``glob_min_``/``glob_max_`` limits."""
         if replace_infinity:
             x = self._replace_inf(x)
         if self.glob_min_ == 0. and self.glob_max_ == 0.:
@@ -256,6 +251,7 @@ class MinMaxCommonScaler(Scaler):
         return x_scaled
 
     def inverse_transform(self, x_scaled):
+        """Undo the global min-max scaling."""
         if self.glob_min_ == 0. and self.glob_max_ == 0.:
             x = x_scaled
         elif self.glob_min_ == self.glob_max_:
@@ -266,11 +262,7 @@ class MinMaxCommonScaler(Scaler):
 
 
 class MinMaxPlus1Scaler(Scaler):
-    """
-    Transform features by scaling each
-    feature to the (1, 2) range.
-    This can be useful to avoid zeros.
-    """
+    """Scale features to ``(1, 2)`` to avoid zeros."""
 
     def __init__(self, **kwargs):
         Scaler.__init__(self, **kwargs)
@@ -285,6 +277,7 @@ class MinMaxPlus1Scaler(Scaler):
         return
 
     def transform(self, x, replace_infinity=True):
+        """Min-max scale then shift by +1."""
         if replace_infinity:
             x_scaled = self._replace_inf(x)
         else:
@@ -293,16 +286,13 @@ class MinMaxPlus1Scaler(Scaler):
         return x_scaled
 
     def inverse_transform(self, x_scaled):
+        """Undo the ``(1, 2)`` scaling by subtracting 1 before inverse."""
         x = self.skl_scaler.inverse_transform(x_scaled - 1.)
         return x
 
 
 class ExpMinMaxScaler(Scaler):
-    """
-    Transform features by scaling each
-    feature to the (0, 1) range and then
-    takes the exponential of the result.
-    """
+    """Min-max scale features and then exponentiate the result."""
 
     def __init__(self, **kwargs):
         Scaler.__init__(self, **kwargs)
@@ -317,6 +307,7 @@ class ExpMinMaxScaler(Scaler):
         return
 
     def transform(self, x, replace_infinity=True):
+        """Apply min-max scaling followed by ``exp``."""
         if replace_infinity:
             x_scaled = self._replace_inf(x)
         else:
@@ -326,6 +317,7 @@ class ExpMinMaxScaler(Scaler):
         return x_scaled
 
     def inverse_transform(self, x_scaled):
+        """Take log first, then undo the min-max scaling."""
         x = np.log(x_scaled)
         x = self.skl_scaler.inverse_transform(x)
         return x
