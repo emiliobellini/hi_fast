@@ -47,6 +47,7 @@ class Params(object):
             'base': 'base_param',
             'func': function_to_convert}}
         """
+
         standard_rules = {
             'H0': {
                 'base': 'h',
@@ -57,10 +58,26 @@ class Params(object):
                 'func': lambda A_s: np.log(A_s * 1e10)
             },
         }
+
         shooting_rules = {
             'sigma8_cb': {
                 'base': 'ln_A_s_1e10',
-                'func': self._spectra['pk_cb'].get_sigma8_cb_from_params,
+                'func': self._spectra['pk_cb'].get_sigma8_from_params,
+                'guess': 3.
+            },
+            'sigma8_m': {
+                'base': 'ln_A_s_1e10',
+                'func': self._spectra['pk_m'].get_sigma8_from_params,
+                'guess': 3.
+            },
+            'S8_cb': {
+                'base': 'ln_A_s_1e10',
+                'func': self._spectra['pk_cb'].get_S8_from_params,
+                'guess': 3.
+            },
+            'S8_m': {
+                'base': 'ln_A_s_1e10',
+                'func': self._spectra['pk_m'].get_S8_from_params,
                 'guess': 3.
             },
         }
