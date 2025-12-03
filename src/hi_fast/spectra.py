@@ -187,8 +187,11 @@ class Spectrum(object):
 
         # Fix parameters
         renaming_rules = [
+            # TODO: implement sigma8_cb and S8_cb
+            # (in Class all is defined wrt _m)
             # hi_fast_name, class_name
-            ('sigma8_cb', 'sigma8'),
+            ('sigma8_m', 'sigma8'),
+            ('S8_m', 'S8'),
         ]
 
         for hi_fast_name, class_name in renaming_rules:
@@ -199,6 +202,8 @@ class Spectrum(object):
         if 'sigma8' in params_in and 'ln_A_s_1e10' in class_args:
             class_args.pop('ln_A_s_1e10')
         if 'A_s' in params_in and 'ln_A_s_1e10' in class_args:
+            class_args.pop('ln_A_s_1e10')
+        if 'S8' in params_in and 'ln_A_s_1e10' in class_args:
             class_args.pop('ln_A_s_1e10')
 
         all_params = verb_params | class_args | prec | params_in
@@ -540,7 +545,7 @@ class Pk(Spectrum):
 
         return sigma_R
 
-    def get_sigma8_cb_from_params(self, params):
+    def get_sigma8_from_params(self, params):
         """
         Get sigma8_cb from params.
          Arguments:
@@ -549,8 +554,20 @@ class Pk(Spectrum):
          - sigma8_cb (float): corresponding sigma8_cb value.
          """
 
-        sigma8_cb = self.get_sigma_R(8., 0.0, params)
-        return sigma8_cb
+        sigma8 = self.get_sigma_R(8., 0.0, params)
+        return sigma8
+
+    def get_S8_from_params(self, params):
+        """
+        Get sigma8_cb from params.
+         Arguments:
+         - params (dict): dictionary with the cosmo parameters.
+         Returns:
+         - sigma8_cb (float): corresponding sigma8_cb value.
+         """
+
+        sigma8 = self.get_sigma_R(8., 0.0, params)
+        return sigma8 * np.sqrt(params['Omega_m']/0.3)
 
 
 # ------------------- Pk -----------------------------------------------------#
