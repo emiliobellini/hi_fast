@@ -127,25 +127,6 @@ class Params(object):
             print(msg)
         return
 
-    def print_params(self):
-        """Print required parameters and their derivable counterparts."""
-        io.print_level(1, '--- Spectrum: {} ---'.format(self._spectrum_name))
-        for par in self._derived:
-            print('  - {}.  Can be derived from: {}'.format(
-                par, self._derived[par]))
-        return
-
-    def print_ranges(self):
-        """Print emulator parameter ranges sourced from training data."""
-        io.print_level(1, '--- Spectrum: {} ---'.format(self._spectrum_name))
-        for par in self._required:
-            if par in self._ranges:
-                low, high = self._ranges[par]
-                print('  - {}: [{}, {}]'.format(par, low, high))
-            else:
-                print('  - {}: unbounded'.format(par))
-        return
-
     def _shooting(self, params, names, targets, rules):
         """Apply a multidimensional shooting method for derived params.
 

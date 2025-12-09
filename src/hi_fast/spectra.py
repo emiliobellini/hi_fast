@@ -70,6 +70,14 @@ class Spectrum(object):
         # power spectrum).
         self.input_params_names = []
 
+        # Placeholder for k, z, ell ranges
+        self.k_min = None
+        self.k_max = None
+        self.z_min = None
+        self.z_max = None
+        self.ell_min = None
+        self.ell_max = None
+
         pass
 
     def _to_numpy_array(self, x):

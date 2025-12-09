@@ -11,8 +11,7 @@ cosmo = HiFast(
     'lcdm',
     timeit=True,
     verbose=True)
-# cosmo.print_params()
-# cosmo.print_ranges()
+cosmo.print_info()
 
 # A_S
 params = {

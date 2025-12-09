@@ -15,6 +15,7 @@ dependencies = [
     "scipy>=1.15",
     "tensorflow>=2.15",
     "classy>3",
+    "tabulate>=0.9",
 ]
 
 [project.urls]

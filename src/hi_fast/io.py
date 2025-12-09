@@ -12,6 +12,7 @@ import re
 import time
 from pickle import UnpicklingError
 from tensorflow import keras
+from tabulate import tabulate
 
 
 # ------------------- Folder -------------------------------------------------#
@@ -306,6 +307,54 @@ class EmuFile(object):
         return self.content
 
 
+# ------------------- Info ---------------------------------------------------#
+
+def _print_info(spectra, params, name=None):
+    """Print summary info for each spectrum emulator.
+    Args:
+        spectra (dict): Mapping from spectrum names to Spectrum objects.
+        params (dict): Mapping from spectrum names to Params objects.
+        name (str | None): When provided, print info only for the named
+            spectrum.
+    """
+    if name is not None:
+        spectra = {name: spectra[name]}
+        params = {name: params[name]}
+    info('HiFast emulator info:')
+
+    for spec_name in spectra.keys():
+        print('\n')
+        print_level(1, 'Spectrum: {}'.format(spec_name))
+        spec = spectra[spec_name]
+        param = params[spec_name]
+
+        headers = ['Parameter', 'Min', 'Max', 'Can be derived from']
+        headers = [write_green(x) for x in headers]
+        tab = []
+        for p_name in param._required:
+            if p_name in param._ranges:
+                p_min, p_max = param._ranges[p_name]
+            else:
+                p_min, p_max = 'N/A', 'N/A'
+            der = ', '.join([x for x in param._derived[p_name] if x != p_name])
+            tab.append([write_blue(p_name), p_min, p_max, der])
+
+        # Print k, z, ell ranges
+        if spec.k_min is not None and spec.k_max is not None:
+            k_min, k_max = spec.k_min, spec.k_max
+            tab.append([write_magenta('k [h/Mpc]'), k_min, k_max, 'N/A'])
+        if spec.z_min is not None and spec.z_max is not None:
+            z_min, z_max = spec.z_min, spec.z_max
+            tab.append([write_magenta('z'), z_min, z_max, 'N/A'])
+        if spec.ell_min is not None and spec.ell_max is not None:
+            ell_min, ell_max = spec.ell_min, spec.ell_max
+            tab.append([write_magenta('ell'), ell_min, ell_max, 'N/A'])
+
+        print(tabulate(tab, headers=headers, tablefmt='grid'))
+
+    return
+
+
 # ------------------- Scripts ------------------------------------------------#
 
 def timeit(func):
@@ -344,6 +393,16 @@ def write_red(msg):
 def write_green(msg):
     """Return ``msg`` wrapped in ANSI escape codes for bold green text."""
     return '\033[1;32m{}\033[00m'.format(msg)
+
+
+def write_blue(msg):
+    """Return ``msg`` wrapped in ANSI escape codes for bold blue text."""
+    return '\033[1;34m{}\033[00m'.format(msg)
+
+
+def write_magenta(msg):
+    """Return ``msg`` wrapped in ANSI escape codes for bold magenta text."""
+    return '\033[1;35m{}\033[00m'.format(msg)
 
 
 def warning(msg):
