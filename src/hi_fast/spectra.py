@@ -357,7 +357,7 @@ class Pk(Spectrum):
         integrand = k**2. * pk * W**2.
 
         sigma_R = np.sqrt(
-            np.trapz(integrand, x=k) / (2. * np.pi**2.))
+            np.trapezoid(integrand, x=k) / (2. * np.pi**2.))
 
         return sigma_R
 

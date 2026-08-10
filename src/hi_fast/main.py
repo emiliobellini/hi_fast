@@ -52,7 +52,7 @@ class HiFast(object):
             # Read content emu
             emufile = io.EmuFile(file)
 
-            # Check that it is a dictionary file
+            # Check that it is not a dictionary file
             if emufile._is_dict_file() is False:
                 continue
             # Load content
