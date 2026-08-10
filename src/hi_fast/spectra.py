@@ -1,6 +1,7 @@
 import classy
 import numpy as np
 import scipy.interpolate as interp
+import tensorflow as tf
 from . import io as io
 from .pca import PCA
 from .scalers import Scaler
@@ -178,6 +179,137 @@ class Spectrum(object):
             y = self.y_scaler.inverse_transform(y_scaled)[0]
 
         return y
+
+    @staticmethod
+    def _tf_scaler_transform(scaler, x):
+        """Apply one of the package scalers without leaving TensorFlow.
+
+        The regular scaler methods use scikit-learn/NumPy and therefore
+        sever the graph needed by :class:`tf.GradientTape`.
+        """
+        if scaler is None:
+            return x
+        name = scaler.name
+        dtype = x.dtype
+
+        if name is None or name == 'None':
+            return x
+        if name == 'MinMaxCommonScaler':
+            low = tf.cast(scaler.glob_min_, dtype)
+            high = tf.cast(scaler.glob_max_, dtype)
+            if scaler.glob_min_ == 0. and scaler.glob_max_ == 0.:
+                return x
+            if scaler.glob_min_ == scaler.glob_max_:
+                return x / high
+            return (x - low) / (high - low)
+
+        skl = scaler.skl_scaler
+        if name in ('StandardScaler', 'LogStandardScaler',
+                    'MinusLogStandardScaler'):
+            mean = tf.cast(skl.mean_, dtype)
+            scale = tf.cast(skl.scale_, dtype)
+            if name == 'LogStandardScaler':
+                x = tf.math.log(x)
+            elif name == 'MinusLogStandardScaler':
+                x = tf.math.log(-x)
+            return (x - mean) / scale
+
+        offset = tf.cast(skl.min_, dtype)
+        scale = tf.cast(skl.scale_, dtype)
+        x = x * scale + offset
+        if name == 'MinMaxPlus1Scaler':
+            return x + tf.cast(1., dtype)
+        if name == 'ExpMinMaxScaler':
+            return tf.math.exp(x)
+        if name == 'MinMaxScaler':
+            return x
+        raise ValueError('Scaler {} not recognized!'.format(name))
+
+    @staticmethod
+    def _tf_scaler_inverse_transform(scaler, x):
+        """Invert one of the package scalers with TensorFlow operations."""
+        if scaler is None:
+            return x
+        name = scaler.name
+        dtype = x.dtype
+
+        if name is None or name == 'None':
+            return x
+        if name == 'MinMaxCommonScaler':
+            low = tf.cast(scaler.glob_min_, dtype)
+            high = tf.cast(scaler.glob_max_, dtype)
+            if scaler.glob_min_ == 0. and scaler.glob_max_ == 0.:
+                return x
+            if scaler.glob_min_ == scaler.glob_max_:
+                return x * high
+            return x * (high - low) + low
+
+        skl = scaler.skl_scaler
+        if name in ('StandardScaler', 'LogStandardScaler',
+                    'MinusLogStandardScaler'):
+            mean = tf.cast(skl.mean_, dtype)
+            scale = tf.cast(skl.scale_, dtype)
+            x = x * scale + mean
+            if name == 'LogStandardScaler':
+                return tf.math.exp(x)
+            if name == 'MinusLogStandardScaler':
+                return -tf.math.exp(x)
+            return x
+
+        offset = tf.cast(skl.min_, dtype)
+        scale = tf.cast(skl.scale_, dtype)
+        if name == 'MinMaxPlus1Scaler':
+            x = x - tf.cast(1., dtype)
+        elif name == 'ExpMinMaxScaler':
+            x = tf.math.log(x)
+        if name in ('MinMaxScaler', 'MinMaxPlus1Scaler',
+                    'ExpMinMaxScaler'):
+            return (x - offset) / scale
+        raise ValueError('Scaler {} not recognized!'.format(name))
+
+    @staticmethod
+    def _tf_pca_transform(pca, x):
+        """Apply a restored scikit-learn PCA as TensorFlow operations."""
+        if pca is None:
+            return x
+        dtype = x.dtype
+        mean = tf.cast(pca.pca.mean_, dtype)
+        components = tf.cast(pca.pca.components_, dtype)
+        return tf.linalg.matmul(x - mean, components, transpose_b=True)
+
+    @staticmethod
+    def _tf_pca_inverse_transform(pca, x):
+        """Invert a restored PCA without detaching the gradient graph."""
+        if pca is None:
+            return x
+        dtype = x.dtype
+        mean = tf.cast(pca.pca.mean_, dtype)
+        components = tf.cast(pca.pca.components_, dtype)
+        return tf.linalg.matmul(x, components) + mean
+
+    def _eval_emu_and_dz(self, params, z):
+        """Evaluate the emulator and its exact network derivative in z."""
+        dtype = tf.as_dtype(self.model.compute_dtype)
+        z_tf = tf.Variable(z, dtype=dtype, trainable=False)
+        z_index = self.x_names.index('z_pk')
+        values = [z_tf if i == z_index else tf.cast(params[name], dtype)
+                  for i, name in enumerate(self.x_names)]
+
+        with tf.GradientTape() as tape:
+            tape.watch(z_tf)
+            x = tf.stack(values)[tf.newaxis, :]
+            x = self._tf_scaler_transform(self.x_scaler, x)
+            x = self._tf_pca_transform(self.x_pca, x)
+            y = self.model(x, training=False)
+            y = self._tf_pca_inverse_transform(self.y_pca, y)
+            y = self._tf_scaler_inverse_transform(self.y_scaler, y)[0]
+
+        dy_dz = tape.jacobian(y, z_tf)
+        if dy_dz is None:
+            raise RuntimeError(
+                'The loaded emulator is not differentiable with respect '
+                'to z_pk')
+        return y.numpy(), dy_dz.numpy()
 
     def _get_input_params_class(
             self, params, precision, class_args, verbose=False):
@@ -595,6 +727,60 @@ class Pk(Spectrum):
             k[:, np.newaxis, np.newaxis], (n_k, n_z, n_mu)) * self.cosmo.h()
         out = fun(k_3D, z, n_k, n_z, n_mu) * self.cosmo.h()**3.
         out = out[:, :, 0]
+
+        return out
+
+    def get_fk(self, k, z, params, nonlinear=False):
+        """Evaluate the emulator growth rate ``f(k, z)``.
+
+        Args:
+            k (float | list | numpy.ndarray): Wavenumbers in h/Mpc.
+            z (float | list | numpy.ndarray): Redshifts.
+            params (dict[str, float]): Cosmological parameters dictionary.
+            nonlinear (bool): Placeholder flag (nonlinear not supported).
+
+        Returns:
+            numpy.ndarray: Growth rate values.
+
+        Raises:
+            ValueError: If ``nonlinear`` is True.
+        """
+
+        # TODO: implement nonlinear
+        if nonlinear:
+            raise ValueError('Nonlinear Pk not yet implemented')
+
+        k = self._to_numpy_array(k)
+        z = self._to_numpy_array(z)
+        self._check_k_values(k)
+        self._check_z_values(z)
+
+        out = np.empty((len(k), len(z)))
+        ref_spline = None
+        if self.ref['spectrum'] is not None:
+            ref_spline = interp.make_splrep(
+                self.ref['z'], self.ref['spectrum'].T, s=0)
+
+        for nz, z_one in enumerate(z):
+            emu, demu_dz = self._eval_emu_and_dz(params, z_one)
+
+            # Some emulators predict P/P_ref rather than P itself.  The
+            # reference spectrum is redshift-dependent and its derivative
+            # must consequently be included as well.
+            if self.ref['spectrum'] is None:
+                pk = emu
+                dpk_dz = demu_dz
+            else:
+                ref = ref_spline(z_one)
+                dref_dz = ref_spline.derivative()(z_one)
+                pk = emu * ref
+                dpk_dz = demu_dz * ref + emu * dref_dz
+
+            pk_at_k = interp.make_splrep(self.ref['k'], pk, s=0)(k)
+            dpk_dz_at_k = interp.make_splrep(
+                self.ref['k'], dpk_dz, s=0)(k)
+            out[:, nz] = (-0.5 * (1. + z_one)
+                          * dpk_dz_at_k / pk_at_k)
 
         return out
 

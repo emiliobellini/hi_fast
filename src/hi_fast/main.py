@@ -145,6 +145,7 @@ class HiFast(object):
             z,
             params,
             name='m',
+            get_from_pk=False,
             nonlinear=False,
             check_params_names=True,
             check_params_values=True,
@@ -161,6 +162,8 @@ class HiFast(object):
                 evaluate.
             params (dict[str, float]): Cosmological parameters.
             name (str): Spectrum identifier; ``m``, ``cb``, or ``weyl``.
+            get_from_pk (bool): When True, compute the growth rate from
+                the power spectrum.
             nonlinear (bool): Placeholder flag; nonlinear emulation is not
                 implemented yet.
             check_params_names (bool): When True, validate coverage of all
@@ -187,8 +190,22 @@ class HiFast(object):
         if nonlinear:
             raise ValueError('Nonlinear Pk not yet implemented')
 
+        # Check if emulator is available; if not, compute from Pk
+        if get_from_pk is False and 'fk_{}'.format(name) not in self._spectra:
+            get_from_pk = True
+            io.warning('No emulator for fk_{} found; computing from Pk instead'
+                       ''.format(name))
+
         # Select correct spectrum
-        spectrum = self._spectra['fk_{}'.format(name)]
+        if get_from_pk is True:
+            spectrum = self._spectra['pk_{}'.format(name)]
+            # Add fake parameters that are used in the Power Spectrum
+            # but not in the growth rate (fixed them to reference to
+            # avoid numerical issues)
+            params['A_s'] = spectrum.ref['params']['ln_A_s_1e10']
+            params['n_s'] = spectrum.ref['params']['n_s']
+        else:
+            spectrum = self._spectra['fk_{}'.format(name)]
 
         # Get parameters
         params = self._params[spectrum.name].get(
@@ -198,7 +215,10 @@ class HiFast(object):
             verbose=verbose)
 
         # Get output
-        out = spectrum.get(k, z, params)
+        if get_from_pk is True:
+            out = spectrum.get_fk(k, z, params)
+        else:
+            out = spectrum.get(k, z, params)
 
         # Squeeze dimensions
         if squeeze:
