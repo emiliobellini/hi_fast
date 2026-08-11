@@ -40,20 +40,32 @@ if __name__ == '__main__':
         root='emu',
         timeit=True,
         verbose=True)
-    # cosmo.print_input_params()
+    cosmo.print_info()
 
     for spectrum in ['fk_m', 'fk_cb', 'fk_weyl']:
 
         # Load reference fk from file
         fits = io.FitsFile(args.data_file)
         x_data = fits.get_data('x_data')[args.idx_data]
-        z = x_data[0]
-        params = {
-            'h': x_data[1],
-            'Omega_m': x_data[2],
-            'Omega_b': x_data[3],
-            'tau_reio': x_data[4],
-        }
+        params_data = [key for key in fits.get_header(0)['params']]
+
+        # Check that parameters in the data file are
+        # consistent with the emulator
+        if params_data != cosmo._params[spectrum]._emu:
+            raise ValueError(
+                'Parameters in the data file are not consistent with the'
+                ' emulator. Data file parameters: {}, Emulator parameters: {}'
+                ''.format(params_data, cosmo._params[spectrum]._emu))
+
+        # Assign parameters to the emulator
+        z = x_data[params_data.index('z_pk')]
+        # Varied parameters
+        params = {key: val
+                  for key, val in zip(params_data, x_data) if key != 'z_pk'}
+        # Extract additional parameters from the default values
+        for param in cosmo._params[spectrum]._additional:
+            if param not in params:
+                params[param] = cosmo._spectra[spectrum].class_args[param]
 
         ref_k = fits.get_data('k_range_{}'.format(spectrum))
         ref_z = fits.get_data('z_array')

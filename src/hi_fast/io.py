@@ -379,7 +379,7 @@ def timeit(func):
             start = time.time()
         result = func(*args,  **kwargs)
         if verbose and dotimeit:
-            print_level(1, '{} executed in {} seconds'.format(
+            print_level(1, '{} executed in {:.2e} seconds'.format(
                 func, time.time()-start))
         return result
     return wrapper_function

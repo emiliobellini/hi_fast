@@ -38,21 +38,33 @@ if __name__ == '__main__':
         root='emu',
         timeit=True,
         verbose=True)
-    # cosmo.print_input_params()
+    # cosmo.print_info()
 
     for spectrum in ['cl_TT', 'cl_TE', 'cl_EE', 'cl_BB', 'cl_Tp', 'cl_pp']:
 
         # Load reference Cl from file
         fits = io.FitsFile(args.data_file)
         x_data = fits.get_data('x_data')[args.idx_data]
-        params = {
-            'h': x_data[0],
-            'Omega_m': x_data[1],
-            'Omega_b': x_data[2],
-            'ln_A_s_1e10': x_data[3],
-            'n_s': x_data[4],
-            'tau_reio': x_data[5],
-        }
+        params_data = [key for key in fits.get_header(0)['params']]
+
+        # Check that parameters in the data file are
+        # consistent with the emulator
+        if params_data != cosmo._params['{}_lensed'.format(spectrum)]._emu:
+            raise ValueError(
+                'Parameters in the data file are not consistent with the'
+                ' emulator. Data file parameters: {}, Emulator parameters: {}'
+                ''.format(
+                    params_data,
+                    cosmo._params['{}_lensed'.format(spectrum)]._emu))
+
+        # Assign parameters to the emulator
+        # Varied parameters
+        params = {key: val for key, val in zip(params_data, x_data)}
+        # Extract additional parameters from the default values
+        for param in cosmo._params['{}_lensed'.format(spectrum)]._additional:
+            if param not in params:
+                params[param] = cosmo._spectra[
+                    '{}_lensed'.format(spectrum)].class_args[param]
 
         ref_ell = fits.get_data('ell_range_{}_lensed'.format(spectrum))
 

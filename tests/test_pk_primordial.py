@@ -5,10 +5,10 @@ from hi_fast import HiFast
 # Load HiFast instance
 cosmo = HiFast(
     'lcdm',
-    root='output',
+    root='emu',
     timeit=True,
     verbose=True)
-# cosmo.print_input_params()
+# cosmo.print_info()
 
 for spectrum in ['pk_m', 'pk_cb', 'pk_weyl']:
 
