@@ -321,13 +321,14 @@ class Spectrum(object):
         against the original one.
         """
         dtype = tf.as_dtype(self.model.compute_dtype)
-        z_tf = tf.Variable(z, dtype=dtype, trainable=False)
+        z_tf = tf.convert_to_tensor(z, dtype=dtype)
         z_index = self.x_names.index('z_pk')
         values = [z_tf if i == z_index else tf.cast(params[name], dtype)
                   for i, name in enumerate(self.x_names)]
 
-        with tf.GradientTape() as tape:
-            tape.watch(z_tf)
+        with tf.autodiff.ForwardAccumulator(
+                primals=z_tf,
+                tangents=tf.ones_like(z_tf)) as accumulator:
             x = tf.stack(values)[tf.newaxis, :]
             x = self._tf_scaler_transform(self.x_scaler, x)
             x = self._tf_pca_transform(self.x_pca, x)
@@ -335,7 +336,7 @@ class Spectrum(object):
             y = self._tf_pca_inverse_transform(self.y_pca, y)
             y = self._tf_scaler_inverse_transform(self.y_scaler, y)[0]
 
-        dy_dz = tape.jacobian(y, z_tf)
+        dy_dz = accumulator.jvp(y)
         if dy_dz is None:
             raise RuntimeError(
                 'The loaded emulator is not differentiable with respect '
