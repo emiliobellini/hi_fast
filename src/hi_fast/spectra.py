@@ -443,6 +443,13 @@ class Pk(Spectrum):
         # Add ref_z and ref_k to ref dictionary
         self.ref['z'] = kwargs['ref_z']
         self.ref['k'] = kwargs['ref_k']
+        self.ref['spectrum_z_spline'] = None
+        self.ref['spectrum_dz_spline'] = None
+        if self.ref['spectrum'] is not None:
+            self.ref['spectrum_z_spline'] = interp.make_splrep(
+                self.ref['z'], self.ref['spectrum'].T, s=0)
+            self.ref['spectrum_dz_spline'] = (
+                self.ref['spectrum_z_spline'].derivative())
 
         # Store min and max
         self.k_min = np.min(self.ref['k'])
@@ -460,6 +467,23 @@ class Pk(Spectrum):
         }
 
         pass
+
+    def _store_reference_spectrum(self, k, z):
+        """Cache the reference spectrum on a requested k-z grid."""
+        same_k = self._is_same_array(k, self.stored['k'])
+        same_z = self._is_same_array(z, self.stored['z'])
+        if same_k and same_z:
+            return
+
+        self.stored['k'] = k
+        self.stored['z'] = z
+        if self.ref['spectrum_z_spline'] is None:
+            self.stored['ref_spectrum'] = None
+            return
+
+        ref_at_z = self.ref['spectrum_z_spline'](z)
+        self.stored['ref_spectrum'] = interp.make_splrep(
+            self.ref['k'], ref_at_z.T, s=0)(k)
 
     def _check_k_values(self, k):
         """Ensure wavenumbers stay inside the training range.
@@ -631,14 +655,7 @@ class Pk(Spectrum):
 
         # If z or k changed, reinterpolate reference
         if not same_k or not same_z:
-            self.stored['k'] = k
-            self.stored['z'] = z
-            # This is done only if the emulator emulates the ratio
-            if self.ref['spectrum'] is not None:
-                ref = interp.make_splrep(
-                    self.ref['z'], self.ref['spectrum'].T, s=0)(z)
-                self.ref_spectrum_stored = interp.make_splrep(
-                    self.ref['k'], ref.T, s=0)(k)
+            self._store_reference_spectrum(k, z)
 
         # Init output
         out_emu = np.zeros((len(self.ref['k']), len(self.stored['z'])))
@@ -656,7 +673,7 @@ class Pk(Spectrum):
 
         # Multiply by reference
         if self.ref['spectrum'] is not None:
-            out = out_emu * self.ref_spectrum_stored
+            out = out_emu * self.stored['ref_spectrum']
         else:
             out = out_emu
 
@@ -836,26 +853,22 @@ class Pk(Spectrum):
         self._check_z_values(z)
 
         out = np.empty((len(k), len(z)))
-        ref_spline = None
-        if self.ref['spectrum'] is not None:
-            ref_spline = interp.make_splrep(
-                self.ref['z'], self.ref['spectrum'].T, s=0)
-
         for nz, z_one in enumerate(z):
             emu, demu_dz = self._eval_emu_and_dz(params, z_one)
 
-            if self.ref['spectrum'] is None:
+            if self.ref['spectrum_z_spline'] is None:
                 pk = emu
                 dpk_dz = demu_dz
             else:
-                ref = ref_spline(z_one)
-                dref_dz = ref_spline.derivative()(z_one)
+                ref = self.ref['spectrum_z_spline'](z_one)
+                dref_dz = self.ref['spectrum_dz_spline'](z_one)
                 pk = emu * ref
                 dpk_dz = demu_dz * ref + emu * dref_dz
 
             pk_at_k = interp.make_splrep(self.ref['k'], pk, s=0)(k)
             dpk_dz_at_k = interp.make_splrep(
                 self.ref['k'], dpk_dz, s=0)(k)
+
             out[:, nz] = (-0.5 * (1. + z_one)
                           * dpk_dz_at_k / pk_at_k)
 
@@ -1106,7 +1119,7 @@ class Cell(Spectrum):
             # but it was quicker to just copy/past from Pk
 
             if self.ref['spectrum'] is not None:
-                self.ref_spectrum_stored = self.ref['spectrum'][
+                self.stored['ref_spectrum'] = self.ref['spectrum'][
                     self.stored['ell_indices']]
 
         # Prepare parameters list
@@ -1117,7 +1130,7 @@ class Cell(Spectrum):
 
         # Multiply by reference
         if self.ref['spectrum'] is not None:
-            out = out_emu * self.ref_spectrum_stored
+            out = out_emu * self.stored['ref_spectrum']
         else:
             out = out_emu
 
