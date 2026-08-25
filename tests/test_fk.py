@@ -1,7 +1,7 @@
 # Test that the growth rates emulated are consistent
 # with CLASS and the reference data.
 # Example of usage:
-# python test_fk.py path/to/data.fits -i 0 -m lcdm
+# python tests/test_fk.py path/to/data.fits -i 0 -m lcdm
 import argparse
 import emu_like.io as io
 import matplotlib.pyplot as plt

@@ -2,7 +2,7 @@
 # growth rate f(k,z) when computed from the
 # power spectrum P(k,z) and from the emulator directly.
 # Example of usage:
-# python test_fk_from_pk.py path/to/data.fits -i 0 -m lcdm
+# python tests/test_fk_from_pk.py path/to/data.fits -i 0 -m lcdm
 import argparse
 import emu_like.io as io
 import matplotlib.pyplot as plt
