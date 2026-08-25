@@ -23,6 +23,8 @@ class Spectrum(object):
         """
         # Name of the spectrum (str)
         self.name = kwargs['name']
+        self._is_pk = None
+        self._is_cl = None
         # Parameters names needed by the emulator (list of str)
         self.x_names = kwargs['x_names']
         # Placeholder for values needed by the emulator (list of floats)
@@ -399,6 +401,10 @@ class Pk(Spectrum):
 
     def __init__(self, **kwargs):
         Spectrum.__init__(self, **kwargs)
+
+        # Spectrum type flags
+        self._is_pk = True
+        self._is_cl = False
 
         # Input parameters (primordial power spectrum)
         self.input_params_names = [nm for nm in self.x_names if nm != 'z_pk']
@@ -942,6 +948,10 @@ class Cell(Spectrum):
 
     def __init__(self, **kwargs):
         Spectrum.__init__(self, **kwargs)
+
+        # Spectrum type flags
+        self._is_pk = False
+        self._is_cl = True
 
         # Input parameters (primordial power spectrum)
         self.input_params_names = self.x_names.copy()

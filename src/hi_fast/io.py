@@ -13,6 +13,8 @@ import time
 from pickle import UnpicklingError
 from tensorflow import keras
 from tabulate import tabulate
+from astropy.io import fits
+from collections import OrderedDict
 
 
 # ------------------- Folder -------------------------------------------------#
@@ -180,6 +182,259 @@ class Folder(object):
         """
         path = os.path.join(self.path, subpath)
         return path
+
+
+# ------------------- Fits Files ---------------------------------------------#
+
+class FitsFile(object):
+    """
+    Class to manage fits files.
+
+    NOTE: the only fine tuned part here is how we manage headers.
+    We accept dictionary as headers, manipulating them to make
+    them acceptable as headers by astropy.fits. In particular:
+    1) we flatten the dictionary with _flatten_dict
+      (_unflatten_dict is used to reverse it). In the same function
+      we split keys and values of the flattened dict, making both
+      of them values (astropy accepts keys with less than 8 chars);
+    2) we convert (nested) lists to strings with _delistify (_listify
+      is used to reverse it), because astropy does not accept lists.
+      For nested arrays or lists we accept up to 2 dimensions.
+
+    """
+
+    def __init__(self, fname, root=None):
+        # Define path
+        if root is None:
+            self.path = os.path.abspath(fname)
+        else:
+            self.path = os.path.abspath(os.path.join(root, fname))
+        # Check existence
+        self.exists = os.path.isfile(self.path)
+        # Check is fits
+        is_fits = self.path.endswith('.fits') or self.path.endswith('.fits.gz')
+        if not is_fits:
+            raise ValueError('Expected .fits file, found {}'.format(self.path))
+        return
+
+    def _flatten_dict(self, nested_dict, delimiter='__'):
+        split_dict = {}
+        flat_dict = self._flatten_dict_recursive(
+            nested_dict, delimiter=delimiter)
+        # In astropy, keys can not be longer than 8 characters. We then create
+        # a flat dict where both keys and values are values. This dictionary
+        # will have keys starting with two delimiters for the keys of the
+        # previous step dictionary, and keys starting with one delimiter for
+        # the values of the previous dictionary. To fix the correspondence each
+        # key ends with a different integer,
+        for nkey, (key, val) in enumerate(flat_dict.items()):
+            split_dict['{}{}{}'.format(delimiter, delimiter, nkey)] = key
+            split_dict['{}{}'.format(delimiter, nkey)] = val
+        return split_dict
+
+    def _flatten_dict_recursive(
+            self, nested_dict, parent_key='', delimiter='__'):
+        """Flatten a nested dictionary, preserving key order."""
+        items = []
+        for key, value in nested_dict.items():
+            new_key = f"{parent_key}{delimiter}{key}" if parent_key else key
+            if isinstance(value, dict):
+                items.extend(self._flatten_dict_recursive(
+                    value, new_key, delimiter).items())
+            else:
+                items.append((new_key, value))
+        return OrderedDict(items)
+
+    def _unflatten_dict(self, flat_dict, delimiter='__'):
+        current_dict = {}
+        # We first fix the correspondence between keys and values to get a list
+        # of flattened keys and values (si discussion in _flatten_dict above).
+        for key_flat in flat_dict.keys():
+            if key_flat.startswith('{}{}'.format(delimiter, delimiter)):
+                key = flat_dict[key_flat]
+                val = flat_dict[key_flat[len(delimiter):]]
+                current_dict[key] = val
+        """
+        Reconstruct a nested dictionary from flattened keys,
+        preserving order.
+        """
+        result = OrderedDict()
+        for key, value in current_dict.items():
+            parts = key.split(delimiter)
+            d = result
+            for part in parts[:-1]:
+                if part not in d:
+                    d[part] = OrderedDict()
+                d = d[part]
+            d[parts[-1]] = value
+        return result
+
+    def _delistify(self, flat_dict, delimiter='_*_'):
+        # fits header do not accept lists as values.
+        # here we convert them into strings, assuming
+        # ndim <= 2.
+        delimiter2 = 2*delimiter
+        for key, val1 in flat_dict.items():
+            if isinstance(val1, list):
+                if all([isinstance(x, str) for x in val1]):
+                    val1 = delimiter2.join(val1)
+                    flat_dict[key] = val1
+                if all([isinstance(x, list) for x in val1]):
+                    tmp = []
+                    for val2 in val1:
+                        tmp.append(delimiter.join([str(x) for x in val2]))
+                    flat_dict[key] = delimiter2.join(tmp)
+        return flat_dict
+
+    def _listify(self, flat_dict, delimiter='_*_'):
+        # fits header do not accept lists as values.
+        # here we convert back delistified lists,
+        # assuming ndim <= 2.
+        current_dict = {}
+        delimiter2 = 2*delimiter
+        for key, val1 in flat_dict.items():
+            if isinstance(val1, str) and delimiter2 in val1:
+                current_dict[key] = val1.split(delimiter2)
+            else:
+                current_dict[key] = val1
+        for key, val1 in current_dict.items():
+            if isinstance(val1, str) and delimiter in val1:
+                current_dict[key] = val1.split(delimiter)
+            elif isinstance(val1, list):
+                for nval2, val2 in enumerate(val1):
+                    if isinstance(val2, str) and delimiter in val2:
+                        current_dict[key][nval2] = val2.split(delimiter)
+                    else:
+                        current_dict[key][nval2] = val2
+        for key, val1 in current_dict.items():
+            if isinstance(val1, str):
+                current_dict[key] = self._floatify(val1)
+            elif isinstance(val1, list):
+                for nval2, val2 in enumerate(val1):
+                    if isinstance(val2, str):
+                        current_dict[key][nval2] = self._floatify(val2)
+                    elif isinstance(val2, list):
+                        current_dict[key][nval2] = [self._floatify(x)
+                                                    for x in val2]
+                    else:
+                        current_dict[key][nval2] = val2
+        return current_dict
+
+    def _floatify(self, val_string):
+        try:
+            val = float(val_string)
+        except ValueError:
+            val = val_string
+        return val
+
+    def write(self, name=None, data=None, header=None, verbose=False):
+        """
+        Write an HDU to a fits file. If the file does not
+        exists, it creates with the content stored in the
+        PrimaryHDU, otherwise it appends and ImageHDU to it.
+        Arguments:
+        - name (str, default: None): name of the HDU;
+        - data (array, default: None): data to be stored;
+        - header (dict or fits.Header): header to be stored.
+          If the input is a dictionary, it is manually
+          converted so it can be accepted by astropy.fits
+          as header (see NOTE at the beginning of the class);
+        - verbose (bool, default: False): verbosity.
+        """
+        # Create parent folder
+        try:
+            Folder(os.path.dirname(self.path)).create()
+        except FileExistsError:
+            pass
+        # We assume that header is either a dictionary, or a fits.Header
+        if isinstance(header, dict):
+            header = self._flatten_dict(header)
+            header = self._delistify(header)
+            header = fits.Header(header)
+        # Create first HDU
+        if not self.exists:
+            hdul = fits.HDUList([fits.PrimaryHDU(data=data, header=header)])
+            hdul.writeto(self.path)
+            self.exists = True
+        else:
+            # Open the file and append
+            with fits.open(self.path, mode='append') as hdul:
+                hdul.append(fits.ImageHDU(data, name=name, header=header))
+        if verbose:
+            print_level(1, 'Appended {} to {}'.format(
+                name.upper(), os.path.relpath(self.path)))
+        return
+
+    def update(self, name, data=None, header=None):
+        """
+        Update an HDU of a fits file. The HDU should already
+        exists (otherwise use the .write method).
+        Arguments:
+        - name (str): name of the HDU;
+        - data (array, default: None): data to be updated;
+        - header (dict or fits.Header): header to be updated.
+          If the input is a dictionary, it is manually
+          converted so it can be accepted by astropy.fits
+          as header (see NOTE at the beginning of the class).
+        - verbose (bool, default: False): verbosity.
+        """
+        if isinstance(header, dict):
+            header = self._flatten_dict(header)
+            header = self._delistify(header)
+            header = fits.Header(header)
+        with fits.open(self.path, mode='update') as hdul:
+            if data is not None:
+                hdul[name].data = data
+            if header is not None:
+                hdul[name].header = header
+        return
+
+    def print_info(self):
+        """
+        Print on screen fits file info.
+        """
+        with fits.open(self.path) as hdul:
+            print(hdul.info())
+        return
+
+    def get_header(self, name, unflat_dict=True):
+        """
+        Open a fits file and return the header of an HDU.
+        Arguments:
+        - name (str): name of the HDU;
+        - unflat_dict (bool, default: True): if False return just the
+          header, otherwise try to reconstruct the nested dictionary.
+        Return:
+        - header.
+        """
+        with fits.open(self.path) as fn:
+            if unflat_dict:
+                hd = self._listify(fn[name].header)
+                hd = self._unflatten_dict(hd)
+            else:
+                hd = fn[name].header
+        return hd
+
+    def get_data(self, name):
+        """
+        Open a fits file and return the data of an HDU.
+        Arguments:
+        - name (str): name of the HDU.
+        Return:
+        - data array.
+        """
+        with fits.open(self.path) as fn:
+            return fn[name].data
+
+    def get_keys(self):
+        """
+        Return the list of HDU names stored in the fits file.
+        Return:
+        - list of HDU names.
+        """
+        with fits.open(self.path) as fn:
+            names = [hdu.name for hdu in fn]
+            return names
 
 
 # ------------------- EmuFile ------------------------------------------------#

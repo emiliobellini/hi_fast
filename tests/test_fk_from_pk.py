@@ -4,11 +4,11 @@
 # Example of usage:
 # python tests/test_fk_from_pk.py path/to/data.fits -i 0 -m lcdm
 import argparse
-import emu_like.io as io
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.interpolate as interp
 from hi_fast import HiFast
+from hi_fast.io import FitsFile
 
 
 # -----------------MAIN-CALL-----------------------------------------
@@ -45,7 +45,7 @@ if __name__ == '__main__':
     for spectrum in ['fk_m', 'fk_cb', 'fk_weyl']:
 
         # Load reference fk from file
-        fits = io.FitsFile(args.data_file)
+        fits = FitsFile(args.data_file)
         x_data = fits.get_data('x_data')[args.idx_data]
         params_data = [key for key in fits.get_header(0)['params']]
 
