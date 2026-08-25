@@ -289,8 +289,37 @@ class Spectrum(object):
         components = tf.cast(pca.pca.components_, dtype)
         return tf.linalg.matmul(x, components) + mean
 
-    def _eval_emu_and_dz(self, params, z):
+    def _eval_emu_and_dz_old(self, params, z):
         """Evaluate the emulator and its exact network derivative in z."""
+        dtype = tf.as_dtype(self.model.compute_dtype)
+        z_tf = tf.Variable(z, dtype=dtype, trainable=False)
+        z_index = self.x_names.index('z_pk')
+        values = [z_tf if i == z_index else tf.cast(params[name], dtype)
+                  for i, name in enumerate(self.x_names)]
+
+        with tf.GradientTape() as tape:
+            tape.watch(z_tf)
+            x = tf.stack(values)[tf.newaxis, :]
+            x = self._tf_scaler_transform(self.x_scaler, x)
+            x = self._tf_pca_transform(self.x_pca, x)
+            y = self.model(x, training=False)
+            y = self._tf_pca_inverse_transform(self.y_pca, y)
+            y = self._tf_scaler_inverse_transform(self.y_scaler, y)[0]
+
+        dy_dz = tape.jacobian(y, z_tf)
+        if dy_dz is None:
+            raise RuntimeError(
+                'The loaded emulator is not differentiable with respect '
+                'to z_pk')
+        return y.numpy(), dy_dz.numpy()
+
+    def _eval_emu_and_dz(self, params, z):
+        """Evaluate the emulator and its exact network derivative in z.
+
+        This is initially an exact copy of ``_eval_emu_and_dz_old`` and is
+        kept separate so that new derivative implementations can be tested
+        against the original one.
+        """
         dtype = tf.as_dtype(self.model.compute_dtype)
         z_tf = tf.Variable(z, dtype=dtype, trainable=False)
         z_index = self.x_names.index('z_pk')
@@ -736,7 +765,7 @@ class Pk(Spectrum):
 
         return out
 
-    def get_fk(self, k, z, params, nonlinear=False):
+    def get_fk_old(self, k, z, params, nonlinear=False):
         """Evaluate the emulator growth rate ``f(k, z)``.
 
         Args:
@@ -768,11 +797,52 @@ class Pk(Spectrum):
                 self.ref['z'], self.ref['spectrum'].T, s=0)
 
         for nz, z_one in enumerate(z):
-            emu, demu_dz = self._eval_emu_and_dz(params, z_one)
+            emu, demu_dz = self._eval_emu_and_dz_old(params, z_one)
 
             # Some emulators predict P/P_ref rather than P itself.  The
             # reference spectrum is redshift-dependent and its derivative
             # must consequently be included as well.
+            if self.ref['spectrum'] is None:
+                pk = emu
+                dpk_dz = demu_dz
+            else:
+                ref = ref_spline(z_one)
+                dref_dz = ref_spline.derivative()(z_one)
+                pk = emu * ref
+                dpk_dz = demu_dz * ref + emu * dref_dz
+
+            pk_at_k = interp.make_splrep(self.ref['k'], pk, s=0)(k)
+            dpk_dz_at_k = interp.make_splrep(
+                self.ref['k'], dpk_dz, s=0)(k)
+            out[:, nz] = (-0.5 * (1. + z_one)
+                          * dpk_dz_at_k / pk_at_k)
+
+        return out
+
+    def get_fk(self, k, z, params, nonlinear=False):
+        """Evaluate ``f(k, z)`` from P(k,z) using the new implementation.
+
+        This is initially an exact copy of ``get_fk_old``.  It deliberately
+        calls ``_eval_emu_and_dz`` so that the derivative implementation can
+        be changed without modifying the preserved baseline.
+        """
+        if nonlinear:
+            raise ValueError('Nonlinear Pk not yet implemented')
+
+        k = self._to_numpy_array(k)
+        z = self._to_numpy_array(z)
+        self._check_k_values(k)
+        self._check_z_values(z)
+
+        out = np.empty((len(k), len(z)))
+        ref_spline = None
+        if self.ref['spectrum'] is not None:
+            ref_spline = interp.make_splrep(
+                self.ref['z'], self.ref['spectrum'].T, s=0)
+
+        for nz, z_one in enumerate(z):
+            emu, demu_dz = self._eval_emu_and_dz(params, z_one)
+
             if self.ref['spectrum'] is None:
                 pk = emu
                 dpk_dz = demu_dz

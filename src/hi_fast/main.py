@@ -139,7 +139,7 @@ class HiFast(object):
         return out
 
     @io.timeit
-    def get_fk(
+    def get_fk_old(
             self,
             k,
             z,
@@ -216,11 +216,67 @@ class HiFast(object):
 
         # Get output
         if get_from_pk is True:
-            out = spectrum.get_fk(k, z, params)
+            out = spectrum.get_fk_old(k, z, params)
         else:
             out = spectrum.get(k, z, params)
 
         # Squeeze dimensions
+        if squeeze:
+            if out.shape == (1, 1):
+                return out[0, 0]
+            elif out.shape[0] == 1:
+                return out[0]
+            elif out.shape[1] == 1:
+                return out[:, 0]
+
+        return out
+
+    @io.timeit
+    def get_fk(
+            self,
+            k,
+            z,
+            params,
+            name='m',
+            get_from_pk=False,
+            nonlinear=False,
+            check_params_names=True,
+            check_params_values=True,
+            squeeze=False,
+            verbose=False,
+            timeit=False):
+        """Evaluate the growth rate using the new implementation.
+
+        This is initially a copy of :meth:`get_fk_old`.  The two entry points
+        are intentionally independent so changes to the new P(k,z)-derivative
+        path can be benchmarked against the preserved implementation.
+        """
+        if nonlinear:
+            raise ValueError('Nonlinear Pk not yet implemented')
+
+        if get_from_pk is False and 'fk_{}'.format(name) not in self._spectra:
+            get_from_pk = True
+            io.warning('No emulator for fk_{} found; computing from Pk instead'
+                       ''.format(name))
+
+        if get_from_pk is True:
+            spectrum = self._spectra['pk_{}'.format(name)]
+            params['A_s'] = spectrum.ref['params']['ln_A_s_1e10']
+            params['n_s'] = spectrum.ref['params']['n_s']
+        else:
+            spectrum = self._spectra['fk_{}'.format(name)]
+
+        params = self._params[spectrum.name].get(
+            params,
+            check_params_names=check_params_names,
+            check_params_values=check_params_values,
+            verbose=verbose)
+
+        if get_from_pk is True:
+            out = spectrum.get_fk(k, z, params)
+        else:
+            out = spectrum.get(k, z, params)
+
         if squeeze:
             if out.shape == (1, 1):
                 return out[0, 0]
