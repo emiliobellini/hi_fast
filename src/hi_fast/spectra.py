@@ -851,6 +851,7 @@ class Pk(Spectrum):
         z = self._to_numpy_array(z)
         self._check_k_values(k)
         self._check_z_values(z)
+        same_k_as_reference = self._is_same_array(k, self.ref['k'])
 
         out = np.empty((len(k), len(z)))
         for nz, z_one in enumerate(z):
@@ -865,9 +866,14 @@ class Pk(Spectrum):
                 pk = emu * ref
                 dpk_dz = demu_dz * ref + emu * dref_dz
 
-            pk_at_k = interp.make_splrep(self.ref['k'], pk, s=0)(k)
-            dpk_dz_at_k = interp.make_splrep(
-                self.ref['k'], dpk_dz, s=0)(k)
+            if same_k_as_reference:
+                pk_at_k = pk
+                dpk_dz_at_k = dpk_dz
+            else:
+                pk_at_k = interp.make_splrep(
+                    self.ref['k'], pk, s=0)(k)
+                dpk_dz_at_k = interp.make_splrep(
+                    self.ref['k'], dpk_dz, s=0)(k)
 
             out[:, nz] = (-0.5 * (1. + z_one)
                           * dpk_dz_at_k / pk_at_k)
