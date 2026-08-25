@@ -119,7 +119,7 @@ if __name__ == '__main__':
             ''.format(spectrum, z, args.data_file, args.idx_data))
         plt.plot(
             ref_k,
-            np.abs(fk_emu[:, 0]/fk_class_2[:, 0] - 1.)*100.,
+            np.abs(fk_emu[0]/fk_class_2[:, 0] - 1.)*100.,
             label='HiFast Emu/Class(high prec)')
         plt.plot(
             ref_k,

@@ -153,11 +153,17 @@ class Spectrum(object):
             numpy.ndarray: Emulator prediction in physical units.
         """
 
+        return self._eval_emu_batch(np.asarray([x]))[0]
+
+    def _eval_emu_batch(self, x):
+        """Evaluate the emulator for a two-dimensional batch of inputs."""
+        x = np.asarray(x)
+
         # Scale x
         if self.x_scaler is None:
-            x_scaled = np.array([x])
+            x_scaled = x
         else:
-            x_scaled = self.x_scaler.transform(np.array([x]))
+            x_scaled = self.x_scaler.transform(x)
 
         # PCA x
         if self.x_pca is None:
@@ -178,9 +184,9 @@ class Spectrum(object):
         if self.y_scaler is None:
             y = y_scaled
         else:
-            y = self.y_scaler.inverse_transform(y_scaled)[0]
+            y = self.y_scaler.inverse_transform(y_scaled)
 
-        return y
+        return np.asarray(y)
 
     @staticmethod
     def _tf_scaler_transform(scaler, x):
@@ -313,7 +319,7 @@ class Spectrum(object):
                 'to z_pk')
         return y.numpy(), dy_dz.numpy()
 
-    def _eval_emu_and_dz(self, params, z):
+    def _eval_emu_and_dz_scalar(self, params, z):
         """Evaluate the emulator and its exact network derivative in z.
 
         This is initially an exact copy of ``_eval_emu_and_dz_old`` and is
@@ -335,6 +341,35 @@ class Spectrum(object):
             y = self.model(x, training=False)
             y = self._tf_pca_inverse_transform(self.y_pca, y)
             y = self._tf_scaler_inverse_transform(self.y_scaler, y)[0]
+
+        dy_dz = accumulator.jvp(y)
+        if dy_dz is None:
+            raise RuntimeError(
+                'The loaded emulator is not differentiable with respect '
+                'to z_pk')
+        return y.numpy(), dy_dz.numpy()
+
+    def _eval_emu_and_dz(self, params, z):
+        """Evaluate a batch and differentiate each row with respect to z."""
+        dtype = tf.as_dtype(self.model.compute_dtype)
+        z_tf = tf.convert_to_tensor(z, dtype=dtype)
+        values = []
+        for name in self.x_names:
+            if name == 'z_pk':
+                values.append(z_tf)
+            else:
+                values.append(tf.convert_to_tensor(
+                    [row[name] for row in params], dtype=dtype))
+
+        with tf.autodiff.ForwardAccumulator(
+                primals=z_tf,
+                tangents=tf.ones_like(z_tf)) as accumulator:
+            x = tf.stack(values, axis=1)
+            x = self._tf_scaler_transform(self.x_scaler, x)
+            x = self._tf_pca_transform(self.x_pca, x)
+            y = self.model(x, training=False)
+            y = self._tf_pca_inverse_transform(self.y_pca, y)
+            y = self._tf_scaler_inverse_transform(self.y_scaler, y)
 
         dy_dz = accumulator.jvp(y)
         if dy_dz is None:
@@ -699,23 +734,58 @@ class Pk(Spectrum):
         if nonlinear:
             raise ValueError('Nonlinear Pk not yet implemented')
 
-        # Get emulator output
-        out, params = self._get_pk_or_fk_common(
-            k, z, params, nonlinear=nonlinear)
+        k = self._to_numpy_array(k)
+        z = self._to_numpy_array(z)
+        if isinstance(params, dict):
+            params = [params] * len(z)
+        if len(params) != len(z):
+            raise ValueError('params and z must contain the same number of '
+                             'cosmologies')
+        self._check_k_values(k)
+        self._check_z_values(z)
+        self._store_reference_spectrum(k, z)
+
+        x = [self._get_values_emu(row, z_pk=z_one)
+             for row, z_one in zip(params, z)]
+        out_emu = self._eval_emu_batch(x)
+        if not self._is_same_array(k, self.ref['k']):
+            out_emu = interp.make_splrep(
+                self.ref['k'], out_emu.T, s=0)(k).T
+        if self.stored['ref_spectrum'] is not None:
+            out = out_emu * self.stored['ref_spectrum'].T
+        else:
+            out = out_emu
 
         # Adjust shape with primordial Pk
         ref_primordial = self._get_primordial_pk(
             self.ref['params']['ln_A_s_1e10'],
             self.ref['params']['n_s'],
             self.ref['params']['k_pivot'],
+            k*self.ref['params']['h'])
+        for index, row in enumerate(params):
+            primordial = self._get_primordial_pk(
+                row['ln_A_s_1e10'], row['n_s'],
+                self.ref['params']['k_pivot'], k*row['h'])
+            out[index] *= primordial / ref_primordial
+
+        return out
+
+    def get_old(self, k, z, params, nonlinear=False):
+        """Evaluate P(k,z) one redshift at a time (pre-batch baseline)."""
+        if nonlinear:
+            raise ValueError('Nonlinear Pk not yet implemented')
+
+        out, params = self._get_pk_or_fk_common(
+            k, z, params, nonlinear=nonlinear)
+        ref_primordial = self._get_primordial_pk(
+            self.ref['params']['ln_A_s_1e10'],
+            self.ref['params']['n_s'],
+            self.ref['params']['k_pivot'],
             self.stored['k']*self.ref['params']['h'])
         primordial = self._get_primordial_pk(
-            params['ln_A_s_1e10'],
-            params['n_s'],
-            self.ref['params']['k_pivot'],
-            self.stored['k']*params['h'])
+            params['ln_A_s_1e10'], params['n_s'],
+            self.ref['params']['k_pivot'], self.stored['k']*params['h'])
         out *= primordial[:, np.newaxis] / ref_primordial[:, np.newaxis]
-
         return out
 
     def get_from_class(
@@ -837,7 +907,7 @@ class Pk(Spectrum):
 
         return out
 
-    def get_fk(self, k, z, params, nonlinear=False):
+    def get_fk_scalar(self, k, z, params, nonlinear=False):
         """Evaluate ``f(k, z)`` from P(k,z) using the new implementation.
 
         This is initially an exact copy of ``get_fk_old``.  It deliberately
@@ -855,7 +925,7 @@ class Pk(Spectrum):
 
         out = np.empty((len(k), len(z)))
         for nz, z_one in enumerate(z):
-            emu, demu_dz = self._eval_emu_and_dz(params, z_one)
+            emu, demu_dz = self._eval_emu_and_dz_scalar(params, z_one)
 
             if self.ref['spectrum_z_spline'] is None:
                 pk = emu
@@ -880,6 +950,51 @@ class Pk(Spectrum):
 
         return out
 
+    def get_fk(self, k, z, params, nonlinear=False):
+        """Evaluate f(k,z) from P(k,z) for independent cosmology rows.
+
+        ``z`` and ``params`` must have the same length. A single parameter
+        dictionary and scalar redshift are accepted as a one-row batch. The
+        returned shape is ``(n_cosmologies, n_k)``.
+        """
+        if nonlinear:
+            raise ValueError('Nonlinear Pk not yet implemented')
+
+        k = self._to_numpy_array(k)
+        z = self._to_numpy_array(z)
+        if isinstance(params, dict):
+            params = [params]
+        if len(params) != len(z):
+            raise ValueError('params and z must contain the same number of '
+                             'cosmologies')
+        self._check_k_values(k)
+        self._check_z_values(z)
+
+        emu, demu_dz = self._eval_emu_and_dz(params, z)
+        if self.ref['spectrum_z_spline'] is not None:
+            ref = np.asarray(self.ref['spectrum_z_spline'](z))
+            dref_dz = np.asarray(self.ref['spectrum_dz_spline'](z))
+            if ref.shape != emu.shape:
+                ref = ref.T
+                dref_dz = dref_dz.T
+            pk = emu * ref
+            dpk_dz = demu_dz * ref + emu * dref_dz
+        else:
+            pk = emu
+            dpk_dz = demu_dz
+
+        if self._is_same_array(k, self.ref['k']):
+            pk_at_k = pk
+            dpk_dz_at_k = dpk_dz
+        else:
+            pk_at_k = interp.make_splrep(
+                self.ref['k'], pk.T, s=0)(k).T
+            dpk_dz_at_k = interp.make_splrep(
+                self.ref['k'], dpk_dz.T, s=0)(k).T
+
+        return (-0.5 * (1. + z[:, np.newaxis])
+                * dpk_dz_at_k / pk_at_k)
+
     def get_sigma_R(self, R, z, params, nonlinear=False):
         """Return ``sigma_R`` evaluated at smoothing scale ``R``.
 
@@ -897,7 +1012,7 @@ class Pk(Spectrum):
         k = self.ref['k']
 
         # Get P(k, z)
-        pk = self.get(k, z, params, nonlinear=nonlinear)[:, 0]
+        pk = self.get(k, z, params, nonlinear=nonlinear)[0]
 
         # Compute sigma_R
         sigma_R = self._sigma_R_integral(k, pk, R)
@@ -957,8 +1072,33 @@ class Fk(Pk):
             numpy.ndarray: Growth rate values.
         """
 
-        out, _ = self._get_pk_or_fk_common(k, z, params, nonlinear=nonlinear)
+        if nonlinear:
+            raise ValueError('Nonlinear Pk not yet implemented')
+        k = self._to_numpy_array(k)
+        z = self._to_numpy_array(z)
+        if isinstance(params, dict):
+            params = [params] * len(z)
+        if len(params) != len(z):
+            raise ValueError('params and z must contain the same number of '
+                             'cosmologies')
+        self._check_k_values(k)
+        self._check_z_values(z)
+        self._store_reference_spectrum(k, z)
 
+        x = [self._get_values_emu(row, z_pk=z_one)
+             for row, z_one in zip(params, z)]
+        out = self._eval_emu_batch(x)
+        if not self._is_same_array(k, self.ref['k']):
+            out = interp.make_splrep(
+                self.ref['k'], out.T, s=0)(k).T
+        if self.stored['ref_spectrum'] is not None:
+            out *= self.stored['ref_spectrum'].T
+        return out
+
+    def get_old(self, k, z, params, nonlinear=False):
+        """Evaluate direct f(k,z) with the pre-batch implementation."""
+        out, _ = self._get_pk_or_fk_common(
+            k, z, params, nonlinear=nonlinear)
         return out
 
     def get_from_class(
@@ -1107,6 +1247,9 @@ class Cell(Spectrum):
             ``\\ell(\\ell+1)C_\\ell/(2\\pi)``.
         """
 
+        if isinstance(params, dict):
+            params = [params]
+
         # Check ell
         ell = self._to_numpy_array(ell)
         # 1) is the same as stored?
@@ -1128,18 +1271,35 @@ class Cell(Spectrum):
                 self.stored['ref_spectrum'] = self.ref['spectrum'][
                     self.stored['ell_indices']]
 
-        # Prepare parameters list
-        self.x_values = self._get_values_emu(params)
-
-        # Evaluate emulator
-        out_emu = self._eval_emu(self.x_values)[self.stored['ell_indices']]
+        # Prepare and evaluate all cosmologies in one model call.
+        x = [self._get_values_emu(row) for row in params]
+        out_emu = self._eval_emu_batch(x)[:, self.stored['ell_indices']]
 
         # Multiply by reference
         if self.ref['spectrum'] is not None:
-            out = out_emu * self.stored['ref_spectrum']
+            out = out_emu * self.stored['ref_spectrum'][np.newaxis, :]
         else:
             out = out_emu
 
+        return out
+
+    def get_old(self, ell, params):
+        """Evaluate one CMB cosmology at a time (pre-batch baseline)."""
+        ell = self._to_numpy_array(ell)
+        same_ell = self._is_same_array(ell, self.stored['ell'])
+        if not same_ell:
+            self._check_ell_values(ell)
+            self.stored['ell'] = ell
+            self.stored['ell_indices'] = np.where(
+                np.isin(self.ref['ell'], ell))[0]
+            if self.ref['spectrum'] is not None:
+                self.stored['ref_spectrum'] = self.ref['spectrum'][
+                    self.stored['ell_indices']]
+
+        x = self._get_values_emu(params)
+        out = self._eval_emu(x)[self.stored['ell_indices']]
+        if self.ref['spectrum'] is not None:
+            out *= self.stored['ref_spectrum']
         return out
 
     def get_from_class(self, ell, params, precision=0, verbose=False):

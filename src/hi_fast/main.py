@@ -117,26 +117,44 @@ class HiFast(object):
         # Select correct spectrum
         spectrum = self._spectra['pk_{}'.format(name)]
 
-        # Get parameters
-        params = self._params[spectrum.name].get(
-            params,
+        if isinstance(params, dict):
+            params = [params]
+        if not hasattr(z, '__len__'):
+            z = [z]
+        if len(params) == 1 and len(z) > 1:
+            params = params * len(z)
+        if len(params) != len(z):
+            raise ValueError('params and z must contain the same number of '
+                             'cosmologies')
+        params = [self._params[spectrum.name].get(
+            row,
             check_params_names=check_params_names,
             check_params_values=check_params_values,
-            verbose=verbose)
+            verbose=verbose) for row in params]
 
         # Get output
         out = spectrum.get(k, z, params)
 
         # Squeeze dimensions
         if squeeze:
-            if out.shape == (1, 1):
-                return out[0, 0]
-            elif out.shape[0] == 1:
-                return out[0]
-            elif out.shape[1] == 1:
-                return out[:, 0]
+            return out.squeeze()
 
         return out
+
+    @io.timeit
+    def get_pk_old(
+            self, k, z, params, name='m', nonlinear=False,
+            check_params_names=True, check_params_values=True,
+            squeeze=False, verbose=False, timeit=False):
+        """Evaluate P(k,z) with the pre-batch implementation."""
+        if nonlinear:
+            raise ValueError('Nonlinear Pk not yet implemented')
+        spectrum = self._spectra['pk_{}'.format(name)]
+        params = self._params[spectrum.name].get(
+            params, check_params_names=check_params_names,
+            check_params_values=check_params_values, verbose=verbose)
+        out = spectrum.get_old(k, z, params)
+        return out.squeeze() if squeeze else out
 
     @io.timeit
     def get_fk_old(
@@ -218,7 +236,7 @@ class HiFast(object):
         if get_from_pk is True:
             out = spectrum.get_fk_old(k, z, params)
         else:
-            out = spectrum.get(k, z, params)
+            out = spectrum.get_old(k, z, params)
 
         # Squeeze dimensions
         if squeeze:
@@ -259,18 +277,29 @@ class HiFast(object):
             io.warning('No emulator for fk_{} found; computing from Pk instead'
                        ''.format(name))
 
+        if isinstance(params, dict):
+            params = [params]
+        if not hasattr(z, '__len__'):
+            z = [z]
+        if len(params) == 1 and len(z) > 1:
+            params = params * len(z)
+        if len(params) != len(z):
+            raise ValueError('params and z must contain the same number of '
+                             'cosmologies')
+
         if get_from_pk is True:
             spectrum = self._spectra['pk_{}'.format(name)]
-            params['A_s'] = spectrum.ref['params']['ln_A_s_1e10']
-            params['n_s'] = spectrum.ref['params']['n_s']
+            for row in params:
+                row['A_s'] = spectrum.ref['params']['ln_A_s_1e10']
+                row['n_s'] = spectrum.ref['params']['n_s']
         else:
             spectrum = self._spectra['fk_{}'.format(name)]
 
-        params = self._params[spectrum.name].get(
-            params,
+        params = [self._params[spectrum.name].get(
+            row,
             check_params_names=check_params_names,
             check_params_values=check_params_values,
-            verbose=verbose)
+            verbose=verbose) for row in params]
 
         if get_from_pk is True:
             out = spectrum.get_fk(k, z, params)
@@ -278,12 +307,7 @@ class HiFast(object):
             out = spectrum.get(k, z, params)
 
         if squeeze:
-            if out.shape == (1, 1):
-                return out[0, 0]
-            elif out.shape[0] == 1:
-                return out[0]
-            elif out.shape[1] == 1:
-                return out[:, 0]
+            return out.squeeze()
 
         return out
 
@@ -326,21 +350,38 @@ class HiFast(object):
         except KeyError:
             spectrum = self._spectra['cl_{}'.format(name)]
 
-        # Get parameters
-        params = self._params[spectrum.name].get(
-            params,
+        if isinstance(params, dict):
+            params = [params]
+        params = [self._params[spectrum.name].get(
+            row,
             check_params_names=check_params_names,
             check_params_values=check_params_values,
-            verbose=verbose)
+            verbose=verbose) for row in params]
 
         # Get output
         out = spectrum.get(ell, params)
 
         # Squeeze dimensions
-        if squeeze and out.shape == (1,):
-            return out[0]
+        if squeeze:
+            return out.squeeze()
 
         return out
+
+    @io.timeit
+    def get_cell_old(
+            self, ell, params, name='TT', check_params_names=True,
+            check_params_values=True, squeeze=False, verbose=False,
+            timeit=False):
+        """Evaluate one CMB cosmology with the pre-batch implementation."""
+        try:
+            spectrum = self._spectra['cl_{}_lensed'.format(name)]
+        except KeyError:
+            spectrum = self._spectra['cl_{}'.format(name)]
+        params = self._params[spectrum.name].get(
+            params, check_params_names=check_params_names,
+            check_params_values=check_params_values, verbose=verbose)
+        out = spectrum.get_old(ell, params)
+        return out.squeeze() if squeeze else out
 
     @io.timeit
     def get_pk_from_class(

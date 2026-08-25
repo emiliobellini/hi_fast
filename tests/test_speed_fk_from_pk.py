@@ -60,7 +60,7 @@ def make_parameters(cosmo, spectrum, names, values):
 
 
 def evaluate(cosmo, k, z, params, name, method, from_pk):
-    """Evaluate one of the direct, old, or new growth-rate paths."""
+    """Evaluate one of the direct or preserved-old growth-rate paths."""
     # get_from_pk=True adds A_s and n_s to its input dictionary.
     get_fk = getattr(cosmo, method)
     return np.asarray(get_fk(
@@ -85,6 +85,29 @@ def benchmark(cosmo, k, redshifts, parameters, name, method, from_pk,
                 cosmo, k, z, params, name, method, from_pk)
             timings[repeat, index] = time.perf_counter() - start
     return results, timings.ravel()
+
+
+def benchmark_batch(cosmo, k, redshifts, parameters, name, batch_size,
+                    warmups, repeats):
+    """Time the standard batch path and return results in row order."""
+    warmup_size = min(batch_size, len(redshifts))
+    for _ in range(warmups):
+        cosmo.get_fk(
+            k, redshifts[:warmup_size], parameters[:warmup_size], name=name,
+            get_from_pk=True)
+
+    chunk_timings = []
+    results = np.empty((len(redshifts), len(k)))
+    for _ in range(repeats):
+        for start_index in range(0, len(redshifts), batch_size):
+            stop_index = min(start_index + batch_size, len(redshifts))
+            start = time.perf_counter()
+            results[start_index:stop_index] = cosmo.get_fk(
+                k, redshifts[start_index:stop_index],
+                parameters[start_index:stop_index], name=name,
+                get_from_pk=True)
+            chunk_timings.append(time.perf_counter() - start)
+    return results, np.asarray(chunk_timings)
 
 
 def relative_statistics(result, reference):
@@ -142,20 +165,25 @@ def run_spectrum(cosmo, args, spectrum):
     old, old_times = benchmark(
         cosmo, k, redshifts, parameters, name, 'get_fk_old', True,
         args.warmups, args.repeats)
-    new, new_times = benchmark(
-        cosmo, k, redshifts, parameters, name, 'get_fk', True,
+    batched, batch_times = benchmark_batch(
+        cosmo, k, redshifts, parameters, name, args.batch_size,
         args.warmups, args.repeats)
 
     print_timings('Direct fk', direct_times)
     print_timings('Old fk derived from pk', old_times)
-    print_timings('New fk derived from pk', new_times)
-    print('New/old mean-time ratio: {:.3f}x'.format(
-        np.mean(new_times) / np.mean(old_times)))
+    print_timings('Batched fk derived from pk (chunks)', batch_times)
+    batch_time_per_row = (
+        np.sum(batch_times) / (args.repeats * len(redshifts)))
+    print('Batched mean time per cosmology: {:.6f} s'.format(
+        batch_time_per_row))
+    print('Batched/old mean-time ratio per cosmology: {:.3f}x'.format(
+        batch_time_per_row / np.mean(old_times)))
 
     print('\nOutput validation')
     print_validation('Old fk from pk versus stored data', old, stored_fk)
-    print_validation('New fk from pk versus stored data', new, stored_fk)
-    print_validation('Old fk from pk versus new fk from pk', old, new)
+    print_validation('Batched fk from pk versus stored data',
+                     batched, stored_fk)
+    print_validation('Old fk from pk versus batched fk', old, batched)
 
 
 def main():
@@ -172,13 +200,16 @@ def main():
                         help='Number of passes over the selected rows')
     parser.add_argument('--warmups', '-w', type=int, default=3,
                         help='Unmeasured TensorFlow warm-up calls')
+    parser.add_argument('--batch-size', '-b', type=int, default=256,
+                        help='Cosmologies evaluated per batch')
     parser.add_argument(
         '--spectra', nargs='+', default=('fk_m', 'fk_cb', 'fk_weyl'),
         choices=('fk_m', 'fk_cb', 'fk_weyl'),
         help='Growth-rate spectra to benchmark')
     args = parser.parse_args()
-    if args.repeats < 1 or args.n_rows < 1 or args.warmups < 0:
-        parser.error('--repeats and --n-rows must be positive; '
+    if (args.repeats < 1 or args.n_rows < 1 or args.batch_size < 1
+            or args.warmups < 0):
+        parser.error('--repeats, --n-rows, and --batch-size must be positive; '
                      '--warmups must be non-negative')
 
     cosmo, load_time = elapsed_call(

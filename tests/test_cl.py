@@ -110,7 +110,7 @@ if __name__ == '__main__':
             ''.format(spectrum, args.data_file, args.idx_data))
         plt.plot(
             ref_ell,
-            np.abs(cl_emu/cl_class_2 - 1.)*100.,
+            np.abs(cl_emu[0]/cl_class_2 - 1.)*100.,
             label='HiFast Emu/Class(high prec)')
         plt.plot(
             ref_ell,
