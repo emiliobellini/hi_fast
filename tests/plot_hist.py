@@ -73,7 +73,7 @@ def row_parameters(cosmo, spectrum, names, row):
     return params, z
 
 
-def predict(cosmo, spectrum, dataset, get_from_pk=False):
+def predict(cosmo, spectrum, dataset, batch_size, get_from_pk=False):
     """Evaluate HiFast and convert physical output to stored-data units."""
     start_total = time.perf_counter()
     emulator_time = 0.0
@@ -82,6 +82,7 @@ def predict(cosmo, spectrum, dataset, get_from_pk=False):
     name = spectrum.split('_')[1]
     n_samples = len(dataset['x'])
     progress_step = max(n_samples // 10, 1)
+    next_progress = progress_step
 
     # The reference grid is identical for every sample. Constructing this
     # spline inside the loop is much more expensive than evaluating it and
@@ -91,31 +92,44 @@ def predict(cosmo, spectrum, dataset, get_from_pk=False):
         reference_spline = interp.make_splrep(
             dataset['z'], dataset['reference'].T, s=0)
 
-    for index, row in enumerate(dataset['x']):
-        if np.any(~np.isfinite(row)):
+    for first in range(0, n_samples, batch_size):
+        last = min(first + batch_size, n_samples)
+        rows = dataset['x'][first:last]
+        finite = np.all(np.isfinite(rows), axis=1)
+        indices = np.arange(first, last)[finite]
+        if not len(indices):
             continue
-        params, z = row_parameters(cosmo, spectrum, dataset['params'], row)
+        batch = [row_parameters(
+            cosmo, spectrum, dataset['params'], row) for row in rows[finite]]
+        params = [item[0] for item in batch]
+        redshifts = np.asarray([item[1] for item in batch]) \
+            if dataset['z'] is not None else None
+
         start_emulator = time.perf_counter()
         if spectrum.startswith('pk_'):
             value = cosmo.get_pk(
-                dataset['grid'], z, params, name=name, squeeze=True)
+                dataset['grid'], redshifts, params, name=name)
         elif spectrum.startswith('fk_'):
-            # get_fk(..., get_from_pk=True) mutates params, hence the copy.
             value = cosmo.get_fk(
-                dataset['grid'], z, params.copy(), name=name,
-                get_from_pk=get_from_pk, squeeze=True)
+                dataset['grid'], redshifts,
+                [row.copy() for row in params], name=name,
+                get_from_pk=get_from_pk)
         else:
             cl_name = spectrum.removeprefix('cl_').removesuffix('_lensed')
             value = cosmo.get_cell(
-                dataset['grid'], params, name=cl_name, squeeze=True)
+                dataset['grid'], params, name=cl_name)
         emulator_time += time.perf_counter() - start_emulator
-        evaluations += 1
+        evaluations += len(indices)
 
-        reference = (dataset['reference'] if reference_spline is None
-                     else reference_spline(z))
-        output[index] = np.asarray(value) / reference
-        completed = index + 1
-        if completed % progress_step == 0 or completed == n_samples:
+        reference = dataset['reference']
+        if reference_spline is not None:
+            reference = np.asarray(reference_spline(redshifts))
+            if reference.shape != np.asarray(value).shape:
+                reference = reference.T
+        output[indices] = np.asarray(value) / reference
+
+        completed = last
+        if completed >= next_progress or completed == n_samples:
             elapsed = time.perf_counter() - start_total
             rate = completed / elapsed
             remaining = (n_samples - completed) / rate if rate else 0.0
@@ -123,6 +137,8 @@ def predict(cosmo, spectrum, dataset, get_from_pk=False):
                   'ETA {:8.2f} s'.format(
                       100 * completed / n_samples, elapsed, remaining),
                   flush=True)
+            while next_progress <= completed:
+                next_progress += progress_step
 
     total_time = time.perf_counter() - start_total
     timing = {
@@ -207,13 +223,14 @@ def plot_worst(grid, prediction, data, errors, rms, spectrum, label, kind,
     return filename
 
 
-def process(cosmo, spectrum, dataset, save_dir, label, from_pk=False):
+def process(cosmo, spectrum, dataset, save_dir, label, batch_size,
+            from_pk=False):
     start_process = time.perf_counter()
     print('  Dataset loading: {:.3f} s'.format(dataset['load_time']))
-    print('  Starting {} emulator evaluations...'.format(len(dataset['x'])),
-          flush=True)
+    print('  Starting {} emulator evaluations in batches of {}...'.format(
+        len(dataset['x']), batch_size), flush=True)
     prediction, prediction_timing = predict(
-        cosmo, spectrum, dataset, get_from_pk=from_pk)
+        cosmo, spectrum, dataset, batch_size, get_from_pk=from_pk)
     n_evaluations = prediction_timing['evaluations']
     average = (prediction_timing['emulator'] / n_evaluations
                if n_evaluations else float('nan'))
@@ -253,7 +270,11 @@ def main():
     parser.add_argument('data_folder', help='FITS file or folder of FITS data')
     parser.add_argument('--model', '-m', default='lcdm', help='Model to use')
     parser.add_argument('--save-dir', '-s', default='output')
+    parser.add_argument('--batch-size', '-b', type=int, default=256,
+                        help='Cosmologies evaluated per HiFast call')
     args = parser.parse_args()
+    if args.batch_size < 1:
+        parser.error('--batch-size must be positive')
 
     save_dir = os.path.abspath(os.path.join(args.save_dir, args.model))
     os.makedirs(save_dir, exist_ok=True)
@@ -278,10 +299,11 @@ def main():
         for dataset in datasets:
             print('\nProcessing {} from {}'.format(spectrum, dataset['path']))
             process(cosmo, spectrum, dataset, save_dir,
-                    'direct_' + dataset['suffix'])
+                    'direct_' + dataset['suffix'], args.batch_size)
             if spectrum.startswith('fk_'):
                 process(cosmo, spectrum, dataset, save_dir,
-                        'from_pk_' + dataset['suffix'], from_pk=True)
+                        'from_pk_' + dataset['suffix'], args.batch_size,
+                        from_pk=True)
 
 
 if __name__ == '__main__':
