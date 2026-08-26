@@ -2,8 +2,7 @@
 
 Example
 -------
-python benchmarks/benchmark_fk_batch.py data.fits \
-    -m lcdm -n 1000 -b 256
+python benchmarks/benchmark_fk_batch.py data.fits -n 1000 -b 256
 """
 import time
 
@@ -14,7 +13,7 @@ from hi_fast import HiFast
 from hi_fast.io import FitsFile
 
 from _common import (benchmark, elapsed_call, parse_arguments,
-                     report_comparison, report_header)
+                     report_comparison, report_difference, report_header)
 
 
 SPECTRA = ('fk_m', 'fk_cb', 'fk_weyl')
@@ -57,18 +56,22 @@ def make_parameters(cosmo, spectrum, names, rows):
     return parameters
 
 
-def run_method(cosmo, args, name, k, redshifts, parameters, from_pk):
+def run_method(
+        cosmo, args, name, k, redshifts, parameters, from_pk, label):
     """Benchmark one growth-rate evaluation method."""
-    n_rows = len(redshifts)
+    n_rows = len(parameters)
 
     def evaluate(first, last, batch_size):
         rows = [row.copy() for row in parameters[first:last]]
         return cosmo.get_fk(
             k, redshifts[first:last], rows, name=name,
-            get_from_pk=from_pk, batch_size=batch_size)
+            get_from_pk=from_pk, batch_size=batch_size, paired=True)
 
+    print('  {}: running one-cosmology batches...'.format(label), flush=True)
     one_row, one_row_time = benchmark(
         evaluate, n_rows, 1, args.warmups, args.repeats)
+    print('  {}: running batches of {} evaluations...'.format(
+        label, args.batch_size), flush=True)
     batch, batch_time = benchmark(
         evaluate, n_rows, args.batch_size, args.warmups, args.repeats)
     return one_row, one_row_time, batch, batch_time
@@ -82,17 +85,21 @@ def run_spectrum(cosmo, args, spectrum):
     parameters = make_parameters(cosmo, spectrum, names, rows)
     name = spectrum.removeprefix('fk_')
     n_rows = len(rows)
+    report_header(spectrum, n_rows, len(k), 'k', load_time)
 
     direct = run_method(
-        cosmo, args, name, k, redshifts, parameters, from_pk=False)
+        cosmo, args, name, k, redshifts, parameters, from_pk=False,
+        label='Direct')
     from_pk = run_method(
-        cosmo, args, name, k, redshifts, parameters, from_pk=True)
+        cosmo, args, name, k, redshifts, parameters, from_pk=True,
+        label='From-pk')
 
-    report_header(spectrum, n_rows, len(k), 'k', load_time)
     report_comparison(
-        'Direct', *direct, data, n_rows, args.batch_size)
+        'Direct', *direct, n_rows, args.batch_size)
     report_comparison(
-        'From-pk', *from_pk, data, n_rows, args.batch_size)
+        'From-pk', *from_pk, n_rows, args.batch_size)
+    report_difference('direct batch/data', direct[2], data)
+    report_difference('from-pk batch/data', from_pk[2], data)
 
 
 def main():
@@ -102,6 +109,7 @@ def main():
         HiFast, args.model, root='emu', timeit=False, verbose=False)
     print('HiFast model loading: {:.6f} s'.format(load_time))
     for spectrum in args.spectra:
+        print('\nLoading {} validation data...'.format(spectrum), flush=True)
         run_spectrum(cosmo, args, spectrum)
 
 

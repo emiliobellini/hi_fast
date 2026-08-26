@@ -111,15 +111,15 @@ if __name__ == '__main__':
             ''.format(spectrum, z, args.data_file, args.idx_data))
         plt.plot(
             ref_k,
-            np.abs(fk_emu_direct[0]/fk_class[:, 0] - 1.)*100.,
+            np.abs(fk_emu_direct[0, 0]/fk_class[0, 0] - 1.)*100.,
             label='HiFast Emu(direct)/Class')
         plt.plot(
             ref_k,
-            np.abs(fk_emu_from_pk[0]/fk_class[:, 0] - 1.)*100.,
+            np.abs(fk_emu_from_pk[0, 0]/fk_class[0, 0] - 1.)*100.,
             label='HiFast Emu(from Pk)/Class')
         plt.plot(
             ref_k,
-            np.abs(fk_data/fk_class[:, 0] - 1.)*100.,
+            np.abs(fk_data/fk_class[0, 0] - 1.)*100.,
             label='Data/Class')
         plt.axhline(0.1, c='k', lw=0.1)
 

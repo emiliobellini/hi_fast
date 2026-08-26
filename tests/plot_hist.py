@@ -79,7 +79,6 @@ def predict(cosmo, spectrum, dataset, batch_size, get_from_pk=False):
     emulator_time = 0.0
     evaluations = 0
     output = np.full(dataset['y'].shape, np.nan, dtype=float)
-    name = spectrum.split('_')[1]
     n_samples = len(dataset['x'])
     progress_step = max(n_samples // 10, 1)
     next_progress = progress_step
@@ -108,12 +107,13 @@ def predict(cosmo, spectrum, dataset, batch_size, get_from_pk=False):
         start_emulator = time.perf_counter()
         if spectrum.startswith('pk_'):
             value = cosmo.get_pk(
-                dataset['grid'], redshifts, params, name=name)
+                dataset['grid'], redshifts, params,
+                name=spectrum.removeprefix('pk_'), paired=True)
         elif spectrum.startswith('fk_'):
             value = cosmo.get_fk(
-                dataset['grid'], redshifts,
-                [row.copy() for row in params], name=name,
-                get_from_pk=get_from_pk)
+                dataset['grid'], redshifts, params,
+                name=spectrum.removeprefix('fk_'),
+                get_from_pk=get_from_pk, paired=True)
         else:
             cl_name = spectrum.removeprefix('cl_').removesuffix('_lensed')
             value = cosmo.get_cell(
@@ -271,7 +271,7 @@ def main():
     parser.add_argument('--model', '-m', default='lcdm', help='Model to use')
     parser.add_argument('--save-dir', '-s', default='output')
     parser.add_argument('--batch-size', '-b', type=int, default=256,
-                        help='Cosmologies evaluated per HiFast call')
+                        help='Stored sample pairs evaluated per model call')
     args = parser.parse_args()
     if args.batch_size < 1:
         parser.error('--batch-size must be positive')

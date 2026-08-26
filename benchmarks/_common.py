@@ -16,7 +16,7 @@ def parse_arguments(description, default_spectra):
     parser.add_argument('-n', '--n-rows', type=int, default=1000,
                         help='Maximum number of consecutive rows to use')
     parser.add_argument('-b', '--batch-size', type=int, default=256,
-                        help='Cosmologies evaluated per model call')
+                        help='Model inputs evaluated per model call')
     parser.add_argument('-r', '--repeats', type=int, default=1,
                         help='Number of measured evaluations')
     parser.add_argument('-w', '--warmups', type=int, default=3,
@@ -58,7 +58,7 @@ def benchmark(evaluate, n_rows, batch_size, warmups, repeats):
 
 def report_header(spectrum, n_rows, n_modes, mode_name, load_time):
     """Print the compact per-spectrum heading shared by all benchmarks."""
-    print('\n{}: {} rows, {} {} modes'.format(
+    print('\n{}: {} cosmologies, {} {} modes'.format(
         spectrum, n_rows, n_modes, mode_name))
     print('Data loading: {:.6f} s'.format(load_time))
 
@@ -73,17 +73,16 @@ def report_difference(label, value, reference):
 
 
 def report_comparison(label, one_row, one_row_time, batch, batch_time,
-                      data, n_rows, batch_size):
+                      n_evaluations, batch_size):
     """Print timings and validation for one-row and multi-row batching."""
     timing_prefix = '{} '.format(label) if label else ''
     result_prefix = '{} '.format(label.lower()) if label else ''
-    print('{}One-row: {:.6f} s ({:.6f} s/row)'.format(
-        timing_prefix, one_row_time, one_row_time / n_rows))
-    print('{}Batch ({}): {:.6f} s ({:.6f} s/row)'.format(
-        timing_prefix, batch_size, batch_time, batch_time / n_rows))
+    print('{}One-row: {:.6f} s ({:.6f} s/evaluation)'.format(
+        timing_prefix, one_row_time, one_row_time / n_evaluations))
+    print('{}Batch ({}): {:.6f} s ({:.6f} s/evaluation)'.format(
+        timing_prefix, batch_size, batch_time,
+        batch_time / n_evaluations))
     print('{}Batch/one-row time ratio: {:.6f}x'.format(
         timing_prefix, batch_time / one_row_time))
-    report_difference('{}one-row/data'.format(result_prefix), one_row, data)
-    report_difference('{}batch/data'.format(result_prefix), batch, data)
     report_difference(
         '{}one-row/batch'.format(result_prefix), one_row, batch)

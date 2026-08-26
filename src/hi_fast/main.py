@@ -42,6 +42,16 @@ class HiFast(object):
             yield first, min(first + batch_size, length)
 
     @staticmethod
+    def _grid_batch(params, redshifts, first, last):
+        """Return one flattened slice of a cosmology-redshift grid."""
+        indices = np.arange(first, last)
+        n_redshifts = len(redshifts)
+        param_indices = indices // n_redshifts
+        redshift_indices = indices % n_redshifts
+        batch_params = [params[index] for index in param_indices]
+        return batch_params, redshifts[redshift_indices]
+
+    @staticmethod
     def _normalize_params(params, names):
         """Return parameter dictionaries from mappings or ordered arrays.
 
@@ -151,7 +161,8 @@ class HiFast(object):
             batch_size=None,
             squeeze=False,
             verbose=False,
-            timeit=False):
+            timeit=False,
+            paired=False):
         """Evaluate the emulator power spectrum ``P(k, z)``.
 
         Args:
@@ -173,18 +184,24 @@ class HiFast(object):
                 required parameter.
             check_params_values (bool): When True, validate the converted
                 parameters lie inside the emulator training domain.
-            batch_size (int | None): Maximum cosmologies evaluated in one
-                emulator call. ``None`` evaluates the complete input batch.
+            batch_size (int | None): Maximum cosmology-redshift pairs
+                evaluated in one emulator call. ``None`` evaluates the
+                complete Cartesian product in one model call.
             squeeze (bool): When True, drop singleton dimensions in the
                 result for convenience.
             verbose (bool): When True, echo both provided and converted
                 parameters.
             timeit (bool): When True, report evaluation time (handled by the
                 decorator).
+            paired (bool): When True, evaluate ``params[i]`` only at
+                ``z[i]`` instead of evaluating the Cartesian product. The
+                two inputs must then have equal lengths.
 
         Returns:
             numpy.ndarray or float: Power spectra in units of ``(Mpc/h)^3``
-            with shape ``(n_cosmologies, n_k)`` before optional squeezing.
+            with shape ``(n_cosmologies, n_redshifts, n_k)`` by default, or
+            ``(n_pairs, n_k)`` when ``paired=True``, before optional
+            squeezing.
 
         Raises:
             ValueError: If ``nonlinear`` is True.
@@ -200,22 +217,34 @@ class HiFast(object):
         param_names = [name for name in spectrum.input_params_names
                        if name != 'z_pk']
         params = self._normalize_params(params, param_names)
-        if not hasattr(z, '__len__'):
-            z = [z]
-        if len(params) == 1 and len(z) > 1:
-            params = params * len(z)
-        if len(params) != len(z):
-            raise ValueError('params and z must contain the same number of '
-                             'cosmologies')
+        z = np.atleast_1d(z)
+        if z.ndim != 1 or not len(z):
+            raise ValueError('z must be a scalar or a non-empty 1D array')
+        converted = [self._params[spectrum.name].get(
+            row,
+            check_params_names=check_params_names,
+            check_params_values=check_params_values,
+            verbose=verbose) for row in params]
+
+        n_cosmologies = len(converted)
+        n_redshifts = len(z)
         outputs = []
-        for first, last in self._batch_ranges(len(params), batch_size):
-            converted = [self._params[spectrum.name].get(
-                row,
-                check_params_names=check_params_names,
-                check_params_values=check_params_values,
-                verbose=verbose) for row in params[first:last]]
-            outputs.append(spectrum.get(k, z[first:last], converted))
+        if paired and n_cosmologies != n_redshifts:
+            raise ValueError('params and z must have equal lengths when '
+                             'paired=True')
+        total = n_cosmologies if paired else n_cosmologies * n_redshifts
+        for first, last in self._batch_ranges(total, batch_size):
+            if paired:
+                batch_params = converted[first:last]
+                batch_z = z[first:last]
+            else:
+                batch_params, batch_z = self._grid_batch(
+                    converted, z, first, last)
+            outputs.append(spectrum.get(k, batch_z, batch_params))
         out = np.concatenate(outputs, axis=0)
+        if not paired:
+            out = out.reshape(
+                n_cosmologies, n_redshifts, np.atleast_1d(k).size)
 
         # Squeeze dimensions
         if squeeze:
@@ -237,15 +266,19 @@ class HiFast(object):
             batch_size=None,
             squeeze=False,
             verbose=False,
-            timeit=False):
+            timeit=False,
+            paired=False):
         """Evaluate growth rates for one cosmology or a parameter batch.
 
         ``params`` accepts a dictionary, a sequence of dictionaries, or a
         one/two-dimensional array. Array columns follow the direct growth-rate
-        emulator's ``input_params_names`` order, excluding ``z_pk``. Redshift
-        is supplied separately through ``z``. ``batch_size`` limits the number
-        of cosmologies evaluated per model call. The unsqueezed output shape
-        is ``(n_cosmologies, n_k)``.
+        emulator's ``input_params_names`` order, excluding ``z_pk``. Every
+        cosmology is evaluated at every value in ``z``. With ``paired=True``,
+        only ``params[i]`` at ``z[i]`` is evaluated and their lengths must be
+        equal. ``batch_size`` limits the number of cosmology-redshift pairs
+        per model call. The unsqueezed output shape is
+        ``(n_cosmologies, n_redshifts, n_k)`` by default and
+        ``(n_pairs, n_k)`` in paired mode.
         """
         if nonlinear:
             raise ValueError('Nonlinear Pk not yet implemented')
@@ -264,13 +297,9 @@ class HiFast(object):
             param_names = [key for key in input_spectrum.input_params_names
                            if key not in ('z_pk', 'ln_A_s_1e10', 'n_s')]
         params = self._normalize_params(params, param_names)
-        if not hasattr(z, '__len__'):
-            z = [z]
-        if len(params) == 1 and len(z) > 1:
-            params = params * len(z)
-        if len(params) != len(z):
-            raise ValueError('params and z must contain the same number of '
-                             'cosmologies')
+        z = np.atleast_1d(z)
+        if z.ndim != 1 or not len(z):
+            raise ValueError('z must be a scalar or a non-empty 1D array')
 
         if get_from_pk is True:
             spectrum = self._spectra['pk_{}'.format(name)]
@@ -280,20 +309,35 @@ class HiFast(object):
         else:
             spectrum = self._spectra['fk_{}'.format(name)]
 
+        converted = [self._params[spectrum.name].get(
+            row,
+            check_params_names=check_params_names,
+            check_params_values=check_params_values,
+            verbose=verbose) for row in params]
+        n_cosmologies = len(converted)
+        n_redshifts = len(z)
         outputs = []
-        for first, last in self._batch_ranges(len(params), batch_size):
-            converted = [self._params[spectrum.name].get(
-                row,
-                check_params_names=check_params_names,
-                check_params_values=check_params_values,
-                verbose=verbose) for row in params[first:last]]
+        if paired and n_cosmologies != n_redshifts:
+            raise ValueError('params and z must have equal lengths when '
+                             'paired=True')
+        total = n_cosmologies if paired else n_cosmologies * n_redshifts
+        for first, last in self._batch_ranges(total, batch_size):
+            if paired:
+                batch_params = converted[first:last]
+                batch_z = z[first:last]
+            else:
+                batch_params, batch_z = self._grid_batch(
+                    converted, z, first, last)
             if get_from_pk is True:
                 outputs.append(spectrum.get_fk(
-                    k, z[first:last], converted))
+                    k, batch_z, batch_params))
             else:
                 outputs.append(spectrum.get(
-                    k, z[first:last], converted))
+                    k, batch_z, batch_params))
         out = np.concatenate(outputs, axis=0)
+        if not paired:
+            out = out.reshape(
+                n_cosmologies, n_redshifts, np.atleast_1d(k).size)
 
         if squeeze:
             return out.squeeze()
@@ -398,7 +442,8 @@ class HiFast(object):
 
         Returns:
             numpy.ndarray or float: Power spectrum values with units
-            ``(Mpc/h)^3``.
+            ``(Mpc/h)^3`` and shape ``(1, n_redshifts, n_k)`` before
+            optional squeezing.
 
         Raises:
             ValueError: If ``nonlinear`` is True.
@@ -414,15 +459,13 @@ class HiFast(object):
         # Get output
         out = spectrum.get_from_class(
             k, z, params, precision=precision, verbose=verbose)
+        n_k = np.atleast_1d(k).size
+        n_z = np.atleast_1d(z).size
+        out = np.asarray(out).reshape(n_k, n_z).T[np.newaxis, :, :]
 
         # Squeeze dimensions
         if squeeze:
-            if out.shape == (1, 1):
-                return out[0, 0]
-            elif out.shape[0] == 1:
-                return out[0]
-            elif out.shape[1] == 1:
-                return out[:, 0]
+            return out.squeeze()
 
         return out
 
@@ -460,7 +503,8 @@ class HiFast(object):
         The returned quantity is dimensionless.
 
         Returns:
-            numpy.ndarray or float: Growth-rate values.
+            numpy.ndarray or float: Growth-rate values with shape
+            ``(1, n_redshifts, n_k)`` before optional squeezing.
 
         Raises:
             ValueError: If ``nonlinear`` is True.
@@ -476,15 +520,13 @@ class HiFast(object):
         # Get output
         out = spectrum.get_from_class(
             k, z, params, precision=precision, verbose=verbose)
+        n_k = np.atleast_1d(k).size
+        n_z = np.atleast_1d(z).size
+        out = np.asarray(out).reshape(n_k, n_z).T[np.newaxis, :, :]
 
         # Squeeze dimensions
         if squeeze:
-            if out.shape == (1, 1):
-                return out[0, 0]
-            elif out.shape[0] == 1:
-                return out[0]
-            elif out.shape[1] == 1:
-                return out[:, 0]
+            return out.squeeze()
 
         return out
 
@@ -515,7 +557,8 @@ class HiFast(object):
 
         Returns:
             numpy.ndarray or float: Dimensionless
-            ``\\ell(\\ell+1)C_\\ell/(2\\pi)`` values.
+            ``\\ell(\\ell+1)C_\\ell/(2\\pi)`` values with shape
+            ``(1, n_ell)`` before optional squeezing.
         """
 
         # Select correct spectrum
@@ -527,10 +570,11 @@ class HiFast(object):
         # Get output
         out = spectrum.get_from_class(
             ell, params, precision=precision, verbose=verbose)
+        out = np.asarray(out).reshape(1, np.atleast_1d(ell).size)
 
         # Squeeze dimensions
-        if squeeze and out.shape == (1,):
-            return out[0]
+        if squeeze:
+            return out.squeeze()
 
         return out
 

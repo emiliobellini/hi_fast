@@ -12,7 +12,7 @@ from hi_fast import HiFast
 from hi_fast.io import FitsFile
 
 from _common import (benchmark, elapsed_call, parse_arguments,
-                     report_comparison, report_header)
+                     report_comparison, report_difference, report_header)
 
 
 SPECTRA = (
@@ -57,21 +57,26 @@ def run_spectrum(cosmo, args, spectrum):
     parameters = make_parameters(cosmo, spectrum, names, rows)
     name = spectrum.removeprefix('cl_').removesuffix('_lensed')
     n_rows = len(rows)
+    report_header(spectrum, n_rows, len(ell), 'ell', load_time)
 
     def evaluate(first, last, batch_size):
         return cosmo.get_cell(
             ell, parameters[first:last], name=name,
             batch_size=batch_size)
 
+    print('  Running one-cosmology batches...', flush=True)
     one_row, one_row_time = benchmark(
         evaluate, n_rows, 1, args.warmups, args.repeats)
+    print('  Running batches of {} evaluations...'.format(
+        args.batch_size), flush=True)
     batch, batch_time = benchmark(
         evaluate, n_rows, args.batch_size, args.warmups, args.repeats)
 
-    report_header(spectrum, n_rows, len(ell), 'ell', load_time)
     report_comparison(
-        '', one_row, one_row_time, batch, batch_time, data, n_rows,
+        '', one_row, one_row_time, batch, batch_time, n_rows,
         args.batch_size)
+    report_difference('one-row/data', one_row, data)
+    report_difference('batch/data', batch, data)
 
 
 def main():
@@ -81,6 +86,7 @@ def main():
         HiFast, args.model, root='emu', timeit=False, verbose=False)
     print('HiFast model loading: {:.6f} s'.format(load_time))
     for spectrum in args.spectra:
+        print('\nLoading {} validation data...'.format(spectrum), flush=True)
         run_spectrum(cosmo, args, spectrum)
 
 

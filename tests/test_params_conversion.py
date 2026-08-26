@@ -176,25 +176,25 @@ if __name__ == '__main__':
     plt.subplot(1, 2, 1)
     plt.plot(
         ref_ell,
-        np.abs(cl_emu_As/cl_class_As-1)*100.,
+        np.abs(cl_emu_As[0]/cl_class_As[0]-1)*100.,
         label='Emu(As)/Class(As)')
     plt.plot(
         ref_ell,
-        np.abs(cl_emu_sigma8/cl_class_As-1)*100.,
+        np.abs(cl_emu_sigma8[0]/cl_class_As[0]-1)*100.,
         '--',
         label='Emu(sigma8)/Class(As)')
     plt.plot(
         ref_ell,
-        np.abs(cl_emu_S8/cl_class_As-1)*100.,
+        np.abs(cl_emu_S8[0]/cl_class_As[0]-1)*100.,
         ':',
         label='Emu(S8)/Class(As)')
     plt.plot(
         ref_ell,
-        np.abs(cl_class_sigma8/cl_class_As-1)*100.,
+        np.abs(cl_class_sigma8[0]/cl_class_As[0]-1)*100.,
         label='Class(sigma8)/Class(As)')
     plt.plot(
         ref_ell,
-        np.abs(cl_class_S8/cl_class_As-1)*100.,
+        np.abs(cl_class_S8[0]/cl_class_As[0]-1)*100.,
         '--',
         label='Class(S8)/Class(As)')
     plt.xscale('log')
@@ -207,25 +207,25 @@ if __name__ == '__main__':
     plt.subplot(1, 2, 2)
     plt.plot(
         ref_k,
-        np.abs(pk_emu_As/pk_class_As-1)*100.,
+        np.abs(pk_emu_As[0, 0]/pk_class_As[0, 0]-1)*100.,
         label='Emu(As)/Class(As)')
     plt.plot(
         ref_k,
-        np.abs(pk_emu_sigma8/pk_class_As-1)*100.,
+        np.abs(pk_emu_sigma8[0, 0]/pk_class_As[0, 0]-1)*100.,
         '--',
         label='Emu(sigma8)/Class(As)')
     plt.plot(
         ref_k,
-        np.abs(pk_emu_S8/pk_class_As-1)*100.,
+        np.abs(pk_emu_S8[0, 0]/pk_class_As[0, 0]-1)*100.,
         ':',
         label='Emu(S8)/Class(As)')
     plt.plot(
         ref_k,
-        np.abs(pk_class_sigma8/pk_class_As-1)*100.,
+        np.abs(pk_class_sigma8[0, 0]/pk_class_As[0, 0]-1)*100.,
         label='Class(sigma8)/Class(As)')
     plt.plot(
         ref_k,
-        np.abs(pk_class_S8/pk_class_As-1)*100.,
+        np.abs(pk_class_S8[0, 0]/pk_class_As[0, 0]-1)*100.,
         '--',
         label='Class(S8)/Class(As)')
     plt.xscale('log')

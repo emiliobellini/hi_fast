@@ -119,19 +119,19 @@ if __name__ == '__main__':
             ''.format(spectrum, z, args.data_file, args.idx_data))
         plt.plot(
             ref_k,
-            np.abs(pk_emu[0]/pk_class_2[:, 0] - 1.)*100.,
+            np.abs(pk_emu[0, 0]/pk_class_2[0, 0] - 1.)*100.,
             label='HiFast Emu/Class(high prec)')
         plt.plot(
             ref_k,
-            np.abs(pk_class_0[:, 0]/pk_class_2[:, 0] - 1.)*100.,
+            np.abs(pk_class_0[0, 0]/pk_class_2[0, 0] - 1.)*100.,
             label='Class(low prec)/Class(high prec)')
         plt.plot(
             ref_k,
-            np.abs(pk_class_1[:, 0]/pk_class_2[:, 0] - 1.)*100.,
+            np.abs(pk_class_1[0, 0]/pk_class_2[0, 0] - 1.)*100.,
             label='Class(std prec)/Class(high prec)')
         plt.plot(
             ref_k,
-            np.abs(pk_data/pk_class_2[:, 0] - 1.)*100.,
+            np.abs(pk_data/pk_class_2[0, 0] - 1.)*100.,
             label='Data/Class(high prec)')
         plt.axhline(0.1, c='k', lw=0.1)
 

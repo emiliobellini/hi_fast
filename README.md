@@ -85,7 +85,21 @@ cosmology; a two-dimensional array contains one cosmology per row. Array
 columns must follow the observable emulator's `input_params_names` order,
 excluding `z_pk`, because redshift is passed separately. Dictionary input can
 still use supported derived parameter names such as `H0`, `sigma8`, or `S8`.
-Unsqueezed output has shape `(n_cosmologies, n_modes)`.
+For power spectra and growth rates, every cosmology is evaluated at every
+redshift and the unsqueezed output has shape
+`(n_cosmologies, n_redshifts, n_k)`. CMB spectra have shape
+`(n_cosmologies, n_ell)`.
+
+For paired datasets, pass `paired=True` to `get_pk` or `get_fk`. This evaluates
+each cosmology only at the redshift with the same index, requires
+`len(params) == len(z)`, and returns `(n_pairs, n_k)` before optional
+squeezing:
+
+```python
+pk_pairs = hifast.get_pk(
+    k, row_redshifts, parameter_rows, name="m", paired=True
+)
+```
 
 Use `get_params_names` instead of accessing emulator internals to discover the
 required array-column order:
@@ -111,8 +125,10 @@ pk = hifast.get_pk(
 )
 ```
 
-The same `batch_size` convention applies to `get_fk` and `get_cell`. Passing
-`None` evaluates the complete parameter batch in one model call.
+For `get_pk` and `get_fk`, `batch_size` limits the number of flattened
+cosmology-redshift pairs per model call in both Cartesian and paired modes.
+For `get_cell`, it limits the number of cosmologies. Passing `None` evaluates
+the complete input in one model call.
 
 HiFast suppresses TensorFlow's C++ startup diagnostics by default, including
 harmless messages about unavailable CUDA drivers on CPU-only systems. This

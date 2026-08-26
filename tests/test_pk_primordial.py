@@ -69,10 +69,10 @@ for spectrum in ['pk_m', 'pk_cb', 'pk_weyl']:
     # Plotting
     plt.title('Test precision Pk {} at z={:.2f}'.format(spectrum, z))
     plt.plot(ref_k,
-             np.abs(pk_emu_std[:, 0]/pk_class_std[:, 0] - 1.)*100.,
+             np.abs(pk_emu_std[0, 0]/pk_class_std[0, 0] - 1.)*100.,
              label='HiFast Emu/Class Standard')
     plt.plot(ref_k,
-             np.abs(pk_emu_res[:, 0]/pk_class_res[:, 0] - 1.)*100.,
+             np.abs(pk_emu_res[0, 0]/pk_class_res[0, 0] - 1.)*100.,
              '--',
              label='HiFast Emu/Class Rescaled')
     plt.axhline(0.1, c='k', lw=0.1)

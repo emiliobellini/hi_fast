@@ -104,13 +104,20 @@ if __name__ == '__main__':
             precision=2,
             timeit=True)
 
+        # Unsqueezed outputs include a leading cosmology dimension. This
+        # script evaluates one cosmology, so select it before plotting.
+        cl_emu = cl_emu[0]
+        cl_class_0 = cl_class_0[0]
+        cl_class_1 = cl_class_1[0]
+        cl_class_2 = cl_class_2[0]
+
         # Plotting
         plt.title(
             'Test precision Cl {}.\n Data file: {},\n Index: {}'
             ''.format(spectrum, args.data_file, args.idx_data))
         plt.plot(
             ref_ell,
-            np.abs(cl_emu[0]/cl_class_2 - 1.)*100.,
+            np.abs(cl_emu/cl_class_2 - 1.)*100.,
             label='HiFast Emu/Class(high prec)')
         plt.plot(
             ref_ell,
