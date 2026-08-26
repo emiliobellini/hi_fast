@@ -77,6 +77,30 @@ print(pk.shape, fk.shape, cl_tt)
 All `get_*` methods accept `check_params_names` / `check_params_values`
 flags to enforce input validation and expose a `timeit` switch for profiling.
 
+The emulator methods are batch-first. Parameter input can be one dictionary,
+a sequence of dictionaries, or a NumPy array. A one-dimensional array is one
+cosmology; a two-dimensional array contains one cosmology per row. Array
+columns must follow the observable emulator's `input_params_names` order,
+excluding `z_pk`, because redshift is passed separately. Dictionary input can
+still use supported derived parameter names such as `H0`, `sigma8`, or `S8`.
+Unsqueezed output has shape `(n_cosmologies, n_modes)`.
+
+Large inputs can be evaluated in bounded chunks without manually splitting
+the arrays:
+
+```python
+pk = hifast.get_pk(
+    k,
+    redshifts,
+    parameter_rows,
+    name="m",
+    batch_size=512,
+)
+```
+
+The same `batch_size` convention applies to `get_fk` and `get_cell`. Passing
+`None` evaluates the complete parameter batch in one model call.
+
 ## Development Notes
 
 - Core source lives under `src/hi_fast/`.

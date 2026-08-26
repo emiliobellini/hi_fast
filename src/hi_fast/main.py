@@ -41,6 +41,32 @@ class HiFast(object):
         for first in range(0, length, batch_size):
             yield first, min(first + batch_size, length)
 
+    @staticmethod
+    def _normalize_params(params, names):
+        """Return parameter dictionaries from mappings or ordered arrays.
+
+        Array columns must follow ``names`` exactly. A one-dimensional array
+        represents one cosmology and a two-dimensional array represents a
+        batch with one cosmology per row.
+        """
+        if isinstance(params, dict):
+            return [params.copy()]
+        if (isinstance(params, (list, tuple)) and params
+                and all(isinstance(row, dict) for row in params)):
+            return [row.copy() for row in params]
+
+        values = np.asarray(params)
+        if values.ndim == 1:
+            values = values[np.newaxis, :]
+        if values.ndim != 2:
+            raise ValueError('params must be a dictionary, a sequence of '
+                             'dictionaries, or a one/two-dimensional array')
+        if values.shape[1] != len(names):
+            raise ValueError(
+                'Expected {} parameter columns in this order: {}; got {}'
+                .format(len(names), names, values.shape[1]))
+        return [dict(zip(names, row)) for row in values]
+
     @io.timeit
     def _load(self, name, root, timeit=False, verbose=False):
         """Load every spectrum emulator shipped inside a bundle.
@@ -96,9 +122,11 @@ class HiFast(object):
                 units of h/Mpc.
             z (float | sequence[float] | numpy.ndarray): Redshifts to
                 evaluate.
-            params (dict[str, float]): Cosmological parameters. Each
-                spectrum defines which keys are required and how they are
-                converted.
+            params (dict[str, float] | sequence[dict[str, float]] |
+                numpy.ndarray): One cosmology, a sequence of cosmology
+                dictionaries, or an array with shape ``(n_params,)`` or
+                ``(n_cosmologies, n_params)``. Array columns must follow
+                ``spectrum.input_params_names`` with ``z_pk`` excluded.
             name (str): Spectrum identifier; ``m`` (total matter), ``cb``
                 (CDM plus baryons), or ``weyl`` (Weyl potential).
             nonlinear (bool): Placeholder flag; nonlinear emulation is not
@@ -108,6 +136,8 @@ class HiFast(object):
                 required parameter.
             check_params_values (bool): When True, validate the converted
                 parameters lie inside the emulator training domain.
+            batch_size (int | None): Maximum cosmologies evaluated in one
+                emulator call. ``None`` evaluates the complete input batch.
             squeeze (bool): When True, drop singleton dimensions in the
                 result for convenience.
             verbose (bool): When True, echo both provided and converted
@@ -116,8 +146,8 @@ class HiFast(object):
                 decorator).
 
         Returns:
-            numpy.ndarray or float: Power spectrum values in units of
-            ``(Mpc/h)^3`` matching the broadcast shape of ``k`` and ``z``.
+            numpy.ndarray or float: Power spectra in units of ``(Mpc/h)^3``
+            with shape ``(n_cosmologies, n_k)`` before optional squeezing.
 
         Raises:
             ValueError: If ``nonlinear`` is True.
@@ -130,8 +160,9 @@ class HiFast(object):
         # Select correct spectrum
         spectrum = self._spectra['pk_{}'.format(name)]
 
-        if isinstance(params, dict):
-            params = [params]
+        param_names = [name for name in spectrum.input_params_names
+                       if name != 'z_pk']
+        params = self._normalize_params(params, param_names)
         if not hasattr(z, '__len__'):
             z = [z]
         if len(params) == 1 and len(z) > 1:
@@ -278,11 +309,14 @@ class HiFast(object):
             squeeze=False,
             verbose=False,
             timeit=False):
-        """Evaluate the growth rate using the new implementation.
+        """Evaluate growth rates for one cosmology or a parameter batch.
 
-        This is initially a copy of :meth:`get_fk_old`.  The two entry points
-        are intentionally independent so changes to the new P(k,z)-derivative
-        path can be benchmarked against the preserved implementation.
+        ``params`` accepts a dictionary, a sequence of dictionaries, or a
+        one/two-dimensional array. Array columns follow the direct growth-rate
+        emulator's ``input_params_names`` order, excluding ``z_pk``. Redshift
+        is supplied separately through ``z``. ``batch_size`` limits the number
+        of cosmologies evaluated per model call. The unsqueezed output shape
+        is ``(n_cosmologies, n_k)``.
         """
         if nonlinear:
             raise ValueError('Nonlinear Pk not yet implemented')
@@ -292,8 +326,15 @@ class HiFast(object):
             io.warning('No emulator for fk_{} found; computing from Pk instead'
                        ''.format(name))
 
-        if isinstance(params, dict):
-            params = [params]
+        if 'fk_{}'.format(name) in self._spectra:
+            input_spectrum = self._spectra['fk_{}'.format(name)]
+            param_names = [key for key in input_spectrum.input_params_names
+                           if key != 'z_pk']
+        else:
+            input_spectrum = self._spectra['pk_{}'.format(name)]
+            param_names = [key for key in input_spectrum.input_params_names
+                           if key not in ('z_pk', 'ln_A_s_1e10', 'n_s')]
+        params = self._normalize_params(params, param_names)
         if not hasattr(z, '__len__'):
             z = [z]
         if len(params) == 1 and len(z) > 1:
@@ -349,19 +390,24 @@ class HiFast(object):
         Args:
             ell (int | sequence[int] | numpy.ndarray): Multipoles to
                 evaluate.
-            params (dict[str, float]): Cosmological parameters dictionary.
+            params (dict[str, float] | sequence[dict[str, float]] |
+                numpy.ndarray): One or more cosmologies. Array columns must
+                follow ``spectrum.input_params_names``.
             name (str): Cl spectrum identifier (``TT``, ``TE``, ``EE``,
                 ``Tp``, ``pp``, ``BB``). Lensed versions are used when
                 available.
             check_params_names (bool): Validate parameter coverage.
             check_params_values (bool): Validate converted parameter ranges.
+            batch_size (int | None): Maximum cosmologies evaluated in one
+                emulator call. ``None`` evaluates the complete input batch.
             squeeze (bool): Return scalars for 1-element outputs.
             verbose (bool): When True, print provided and derived
                 parameters.
             timeit (bool): When True, measure call duration.
 
         Returns:
-            numpy.ndarray or float: Dimensionless angular spectrum values.
+            numpy.ndarray or float: Dimensionless angular spectra with shape
+            ``(n_cosmologies, n_ell)`` before optional squeezing.
         """
 
         # Select correct spectrum
@@ -370,8 +416,9 @@ class HiFast(object):
         except KeyError:
             spectrum = self._spectra['cl_{}'.format(name)]
 
-        if isinstance(params, dict):
-            params = [params]
+        param_names = [key for key in spectrum.input_params_names
+                       if key != 'z_pk']
+        params = self._normalize_params(params, param_names)
         outputs = []
         for first, last in self._batch_ranges(len(params), batch_size):
             converted = [self._params[spectrum.name].get(
