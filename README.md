@@ -51,6 +51,8 @@ emu/
 ## Quickstart
 
 ```python
+import numpy as np
+
 from hi_fast import main
 
 # Load all spectra for the LCDM emulator bundle located under ./emu
@@ -84,6 +86,17 @@ columns must follow the observable emulator's `input_params_names` order,
 excluding `z_pk`, because redshift is passed separately. Dictionary input can
 still use supported derived parameter names such as `H0`, `sigma8`, or `S8`.
 Unsqueezed output has shape `(n_cosmologies, n_modes)`.
+
+Use `get_params_names` instead of accessing emulator internals to discover the
+required array-column order:
+
+```python
+names = hifast.get_params_names("pk_m")
+parameter_rows = np.array([
+    [first_cosmology[name] for name in names],
+    [second_cosmology[name] for name in names],
+])
+```
 
 Large inputs can be evaluated in bounded chunks without manually splitting
 the arrays:

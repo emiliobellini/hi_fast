@@ -67,6 +67,40 @@ class HiFast(object):
                 .format(len(names), names, values.shape[1]))
         return [dict(zip(names, row)) for row in values]
 
+    def get_params_names(self, spectrum):
+        """Return the ordered parameter names expected by array input.
+
+        Args:
+            spectrum (str): Full observable name, such as ``pk_m``, ``fk_cb``,
+                or ``cl_TT_lensed``.
+
+        Returns:
+            list[str]: Array-column names in the exact order accepted by the
+            corresponding ``get_*`` method. ``z_pk`` is omitted because
+            redshift is passed separately.
+
+        Raises:
+            ValueError: If the requested observable is unavailable.
+        """
+        if spectrum in self._spectra:
+            selected = self._spectra[spectrum]
+            names = selected.input_params_names
+        elif spectrum.startswith('fk_'):
+            pk_name = 'pk_{}'.format(spectrum.removeprefix('fk_'))
+            if pk_name not in self._spectra:
+                raise ValueError('Spectrum {} is not available'.format(
+                    spectrum))
+            names = self._spectra[pk_name].input_params_names
+            # Growth rates derived from P(k,z) fix primordial shape and
+            # amplitude to their reference values.
+            names = [name for name in names
+                     if name not in ('ln_A_s_1e10', 'n_s')]
+        else:
+            raise ValueError('Spectrum {} is not available. Choose from {}'
+                             .format(spectrum,
+                                     sorted(self._spectra.keys())))
+        return [name for name in names if name != 'z_pk']
+
     @io.timeit
     def _load(self, name, root, timeit=False, verbose=False):
         """Load every spectrum emulator shipped inside a bundle.
