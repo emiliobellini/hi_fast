@@ -118,7 +118,8 @@ The same `batch_size` convention applies to `get_fk` and `get_cell`. Passing
 
 - Core source lives under `src/hi_fast/`.
 - Emulator metadata and weights reside in `emu/`.
-- Examples and inspection notebooks are located in `examples/` and `tests/`.
+- Examples and inspection scripts are located in `examples/`.
+- Performance scripts are located in `benchmarks/`.
 
 Before submitting changes, run the conversion tests and ensure docstrings stay
 in sync with new behavior.
@@ -137,9 +138,10 @@ Run the fast automated unit suite with:
 python -m pytest
 ```
 
-The pytest configuration collects only `tests/unit`. The other files directly
-under `tests/` are scientific validation, plotting, and performance scripts;
-run those explicitly when their FITS data or emulator assets are available.
+The pytest configuration collects only `tests/unit`. The files directly under
+`tests/` are scientific validation and plotting scripts. Performance scripts
+live under `benchmarks/`; run them explicitly when their FITS data and emulator
+assets are available.
 
 Useful commands include:
 
