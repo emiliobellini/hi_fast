@@ -11,8 +11,8 @@ from hi_fast.io import FitsFile
 
 def stats(value, reference):
     scale = np.maximum(np.abs(reference), np.finfo(float).tiny)
-    difference = np.abs(value - reference) / scale
-    return np.mean(difference), np.percentile(difference, 99), np.max(difference)
+    diff = np.abs(value - reference) / scale
+    return np.mean(diff), np.percentile(diff, 99), np.max(diff)
 
 
 def report(label, value, reference):

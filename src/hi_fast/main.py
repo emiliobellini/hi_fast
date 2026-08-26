@@ -1,3 +1,5 @@
+import numpy as np
+
 from . import io as io
 from . import spectra as sp
 from .params import Params
@@ -28,6 +30,16 @@ class HiFast(object):
                         for spec in self._spectra.values()}
 
         pass
+
+    @staticmethod
+    def _batch_ranges(length, batch_size):
+        """Yield half-open row ranges for an optional internal batch size."""
+        if batch_size is None:
+            batch_size = length
+        if not isinstance(batch_size, int) or batch_size < 1:
+            raise ValueError('batch_size must be a positive integer or None')
+        for first in range(0, length, batch_size):
+            yield first, min(first + batch_size, length)
 
     @io.timeit
     def _load(self, name, root, timeit=False, verbose=False):
@@ -73,6 +85,7 @@ class HiFast(object):
             nonlinear=False,
             check_params_names=True,
             check_params_values=True,
+            batch_size=None,
             squeeze=False,
             verbose=False,
             timeit=False):
@@ -126,14 +139,15 @@ class HiFast(object):
         if len(params) != len(z):
             raise ValueError('params and z must contain the same number of '
                              'cosmologies')
-        params = [self._params[spectrum.name].get(
-            row,
-            check_params_names=check_params_names,
-            check_params_values=check_params_values,
-            verbose=verbose) for row in params]
-
-        # Get output
-        out = spectrum.get(k, z, params)
+        outputs = []
+        for first, last in self._batch_ranges(len(params), batch_size):
+            converted = [self._params[spectrum.name].get(
+                row,
+                check_params_names=check_params_names,
+                check_params_values=check_params_values,
+                verbose=verbose) for row in params[first:last]]
+            outputs.append(spectrum.get(k, z[first:last], converted))
+        out = np.concatenate(outputs, axis=0)
 
         # Squeeze dimensions
         if squeeze:
@@ -260,6 +274,7 @@ class HiFast(object):
             nonlinear=False,
             check_params_names=True,
             check_params_values=True,
+            batch_size=None,
             squeeze=False,
             verbose=False,
             timeit=False):
@@ -295,16 +310,20 @@ class HiFast(object):
         else:
             spectrum = self._spectra['fk_{}'.format(name)]
 
-        params = [self._params[spectrum.name].get(
-            row,
-            check_params_names=check_params_names,
-            check_params_values=check_params_values,
-            verbose=verbose) for row in params]
-
-        if get_from_pk is True:
-            out = spectrum.get_fk(k, z, params)
-        else:
-            out = spectrum.get(k, z, params)
+        outputs = []
+        for first, last in self._batch_ranges(len(params), batch_size):
+            converted = [self._params[spectrum.name].get(
+                row,
+                check_params_names=check_params_names,
+                check_params_values=check_params_values,
+                verbose=verbose) for row in params[first:last]]
+            if get_from_pk is True:
+                outputs.append(spectrum.get_fk(
+                    k, z[first:last], converted))
+            else:
+                outputs.append(spectrum.get(
+                    k, z[first:last], converted))
+        out = np.concatenate(outputs, axis=0)
 
         if squeeze:
             return out.squeeze()
@@ -319,6 +338,7 @@ class HiFast(object):
             name='TT',
             check_params_names=True,
             check_params_values=True,
+            batch_size=None,
             squeeze=False,
             verbose=False,
             timeit=False):
@@ -352,14 +372,15 @@ class HiFast(object):
 
         if isinstance(params, dict):
             params = [params]
-        params = [self._params[spectrum.name].get(
-            row,
-            check_params_names=check_params_names,
-            check_params_values=check_params_values,
-            verbose=verbose) for row in params]
-
-        # Get output
-        out = spectrum.get(ell, params)
+        outputs = []
+        for first, last in self._batch_ranges(len(params), batch_size):
+            converted = [self._params[spectrum.name].get(
+                row,
+                check_params_names=check_params_names,
+                check_params_values=check_params_values,
+                verbose=verbose) for row in params[first:last]]
+            outputs.append(spectrum.get(ell, converted))
+        out = np.concatenate(outputs, axis=0)
 
         # Squeeze dimensions
         if squeeze:
