@@ -74,13 +74,36 @@ print(pk.shape, fk.shape, cl_tt.shape)
 # (2, 2) (2, 2) (1, 3)
 ```
 
-Use `print_info()` to inspect the observables, required parameters, derived
-parameter alternatives, and training ranges stored in a bundle:
+Use `print_info()` to inspect the observables and trust regions stored in a
+bundle. With no arguments it prints a compact grouped summary; with one
+observable name it prints the detailed parameter table:
 
 ```python
-hifast.print_info()             # every loaded observable
-hifast.print_info("pk_m")       # one observable
+hifast.print_info()                       # every loaded observable
+hifast.print_info("pk_m")                 # one observable
+hifast.print_info("pk_m", bounds="std")   # one trust region
 ```
+
+The same metadata can be rendered as Markdown, which is useful for generating
+bundle-level emulator documentation:
+
+```python
+hifast.print_info(markdown=True)
+hifast.print_info(markdown=True, output="emu/lcdm/README.md")
+```
+
+Each emulator stores three nested parameter regions: `thin`, `std`, and
+`ext`. The `thin` region is the narrowest, `std` is the standard validation
+region, and `ext` is the widest stored region. These ranges define where an
+emulator is meant to be trusted; they are distinct from the `k` and `ell`
+support of a spectrum.
+
+The current `get_*` methods validate against the stored emulator domain and
+raise an exception for out-of-range inputs when `check_params_values=True`.
+For the shipped bundles this current validation domain is the widest `ext`
+region. A future fallback mode is planned where calls can choose which region
+to trust, for example `thin`, `std`, or `ext`, and route points outside that
+chosen region to HiCLASS automatically.
 
 For CMB spectra, the public `name` argument is the short selector (`TT`, `TE`,
 `EE`, `BB`, `Tp`, or `pp`). Complete names such as `cl_TT_lensed` identify
@@ -90,8 +113,8 @@ corresponding raw emulator when only the latter is available.
 
 The emulator methods accept `check_params_names` and `check_params_values`
 flags to enforce input validation and expose a `timeit` switch for profiling.
-Inputs outside the emulator ranges raise an exception; HiFast does not switch
-to HiCLASS automatically.
+Inputs outside the active emulator ranges raise an exception; HiFast does not
+switch to HiCLASS automatically yet.
 
 The emulator methods are batch-first. Parameter input can be one dictionary,
 a sequence of dictionaries, or a NumPy array. A one-dimensional array is one

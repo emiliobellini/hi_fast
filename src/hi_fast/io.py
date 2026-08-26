@@ -564,50 +564,347 @@ class EmuFile(object):
 
 # ------------------- Info ---------------------------------------------------#
 
-def _print_info(spectra, params, name=None):
-    """Print summary info for each spectrum emulator.
+_INFO_BOUNDS = ('thin', 'std', 'ext')
+
+
+def _format_info_value(value):
+    """Format range values compactly for terminal tables."""
+    if isinstance(value, float):
+        return '{:.8g}'.format(value)
+    return value
+
+
+def _format_info_range(bounds):
+    """Return a compact ``[min, max]`` range string."""
+    if bounds is None:
+        return 'N/A'
+    low, high = bounds
+    return '[{}, {}]'.format(
+        _format_info_value(low), _format_info_value(high))
+
+
+def _spectrum_group(spec_name):
+    """Return a display group for a spectrum name."""
+    if spec_name.startswith('pk_'):
+        return 'Power spectra'
+    if spec_name.startswith('fk_'):
+        return 'Growth rates'
+    if spec_name.startswith('cl_'):
+        return 'CMB spectra'
+    return 'Other spectra'
+
+
+def _spectrum_public_call(spec_name):
+    """Return the public getter syntax for a spectrum name."""
+    if spec_name.startswith('pk_'):
+        name = spec_name.removeprefix('pk_')
+        return 'get_pk(..., name="{}")'.format(name)
+    if spec_name.startswith('fk_'):
+        name = spec_name.removeprefix('fk_')
+        return 'get_fk(..., name="{}")'.format(name)
+    if spec_name.startswith('cl_'):
+        name = spec_name.removeprefix('cl_').removesuffix('_lensed')
+        return 'get_cell(..., name="{}")'.format(name)
+    return spec_name
+
+
+def _build_info_metadata(spectra, params, name=None):
+    """Build structured metadata shared by terminal and Markdown renderers."""
+    if name is None:
+        spec_names = sorted(spectra)
+    else:
+        spec_names = [name]
+
+    metadata = []
+    for spec_name in spec_names:
+        spec = spectra[spec_name]
+        param = params[spec_name]
+        entry = {
+            'name': spec_name,
+            'group': _spectrum_group(spec_name),
+            'public_call': _spectrum_public_call(spec_name),
+            'required': list(param._required),
+            'derived': {
+                p_name: [
+                    x for x in param._derived[p_name] if x != p_name
+                ]
+                for p_name in param._required
+            },
+            'ranges': {
+                region: {
+                    p_name: param._ranges_by_region[region].get(p_name)
+                    for p_name in param._required
+                }
+                for region in _INFO_BOUNDS
+            },
+            'z_ranges': {
+                region: param._ranges_by_region[region].get('z_pk')
+                for region in _INFO_BOUNDS
+            },
+            'k_range': None,
+            'ell_range': None,
+        }
+        if spec.k_min is not None and spec.k_max is not None:
+            entry['k_range'] = [spec.k_min, spec.k_max]
+        if spec.ell_min is not None and spec.ell_max is not None:
+            entry['ell_range'] = [spec.ell_min, spec.ell_max]
+        metadata.append(entry)
+    return metadata
+
+
+def _info_domain_summary(entry, bounds):
+    """Return compact grid/domain text from metadata."""
+    entries = []
+    if entry['k_range'] is not None:
+        entries.append('k {}'.format(_format_info_range(entry['k_range'])))
+    if entry['ell_range'] is not None:
+        entries.append('ell {}'.format(
+            _format_info_range(entry['ell_range'])))
+    if entry['z_ranges']['ext'] is not None:
+        if bounds is None:
+            z_ranges = [
+                '{} {}'.format(
+                    region, _format_info_range(entry['z_ranges'][region]))
+                for region in _INFO_BOUNDS
+            ]
+            entries.append('z: {}'.format('; '.join(z_ranges)))
+        else:
+            entries.append('z {}'.format(
+                _format_info_range(entry['z_ranges'][bounds])))
+    return '; '.join(entries) if entries else 'N/A'
+
+
+def _info_detail_rows(entry, bounds, color=False):
+    """Return detailed parameter/domain rows for one metadata entry."""
+    rows = []
+    for p_name in entry['required']:
+        der = ', '.join(entry['derived'][p_name])
+        display_name = write_blue(p_name) if color else p_name
+        if bounds is None:
+            row = [display_name]
+            for region in _INFO_BOUNDS:
+                row.append(_format_info_range(
+                    entry['ranges'][region].get(p_name)))
+            row.append(der)
+        else:
+            p_range = entry['ranges'][bounds].get(p_name)
+            if p_range is None:
+                p_min, p_max = 'N/A', 'N/A'
+            else:
+                p_min, p_max = [_format_info_value(x) for x in p_range]
+            row = [display_name, p_min, p_max, der]
+        rows.append(row)
+
+    if entry['z_ranges']['ext'] is not None:
+        display_name = write_magenta('z') if color else 'z'
+        if bounds is None:
+            row = [display_name]
+            for region in _INFO_BOUNDS:
+                row.append(_format_info_range(entry['z_ranges'][region]))
+            row.append('N/A')
+        else:
+            z_min, z_max = entry['z_ranges'][bounds]
+            row = [display_name, _format_info_value(z_min),
+                   _format_info_value(z_max), 'N/A']
+        rows.append(row)
+
+    if entry['k_range'] is not None:
+        display_name = write_magenta('k [h/Mpc]') if color else 'k [h/Mpc]'
+        if bounds is None:
+            k_range = _format_info_range(entry['k_range'])
+            rows.append([display_name, k_range, k_range, k_range, 'N/A'])
+        else:
+            rows.append([display_name,
+                         _format_info_value(entry['k_range'][0]),
+                         _format_info_value(entry['k_range'][1]), 'N/A'])
+
+    if entry['ell_range'] is not None:
+        display_name = write_magenta('ell') if color else 'ell'
+        if bounds is None:
+            ell_range = _format_info_range(entry['ell_range'])
+            rows.append([display_name, ell_range, ell_range, ell_range, 'N/A'])
+        else:
+            rows.append([display_name,
+                         _format_info_value(entry['ell_range'][0]),
+                         _format_info_value(entry['ell_range'][1]), 'N/A'])
+
+    return rows
+
+
+def _markdown_cell(value):
+    """Escape a value for use in a Markdown table cell."""
+    return str(value).replace('|', '\\|').replace('\n', ' ')
+
+
+def _markdown_table(headers, rows):
+    """Return a GitHub-flavored Markdown table."""
+    lines = [
+        '| {} |'.format(' | '.join(_markdown_cell(x) for x in headers)),
+        '| {} |'.format(' | '.join('---' for _ in headers)),
+    ]
+    for row in rows:
+        lines.append('| {} |'.format(
+            ' | '.join(_markdown_cell(x) for x in row)))
+    return '\n'.join(lines)
+
+
+def _format_info_markdown(metadata, name=None, bounds=None):
+    """Render emulator metadata as Markdown."""
+    lines = []
+    if name is None:
+        lines.append('# HiFast Emulator Summary')
+    else:
+        lines.append('# HiFast Emulator: {}'.format(name))
+    lines.append('')
+    if bounds is None:
+        lines.append(
+            'Trust regions are shown as `thin`, `std`, and `ext`.')
+    else:
+        lines.append('Trust region: `{}`.'.format(bounds))
+    lines.append('')
+
+    groups = ('Power spectra', 'Growth rates', 'CMB spectra', 'Other spectra')
+    if name is None:
+        lines.append('## Observables')
+        for group in groups:
+            group_entries = [
+                entry for entry in metadata if entry['group'] == group
+            ]
+            if not group_entries:
+                continue
+            lines.append('')
+            lines.append('### {}'.format(group))
+            lines.append('')
+            rows = []
+            for entry in group_entries:
+                rows.append([
+                    entry['name'],
+                    '`{}`'.format(entry['public_call']),
+                    ', '.join('`{}`'.format(x) for x in entry['required']),
+                    _info_domain_summary(entry, bounds),
+                ])
+            lines.append(_markdown_table(
+                ['Observable', 'Public call', 'Required inputs',
+                 'Grid / redshift domain'],
+                rows))
+            lines.append('')
+
+    lines.append('## Detailed Trust Regions')
+    for entry in metadata:
+        lines.append('')
+        lines.append('### {}'.format(entry['name']))
+        lines.append('')
+        if bounds is None:
+            headers = ['Parameter', 'Thin', 'Std', 'Ext',
+                       'Can be derived from']
+        else:
+            headers = ['Parameter', 'Min', 'Max', 'Can be derived from']
+        rows = _info_detail_rows(entry, bounds, color=False)
+        rows = [
+            [row[0]] + row[1:-1] + [
+                ', '.join('`{}`'.format(x) for x in row[-1].split(', '))
+                if row[-1] not in ('', 'N/A') else row[-1]
+            ]
+            for row in rows
+        ]
+        lines.append(_markdown_table(headers, rows))
+        lines.append('')
+
+    return '\n'.join(lines).rstrip() + '\n'
+
+
+def _print_summary(metadata, bounds):
+    """Print a compact grouped overview of all loaded observables."""
+    info('HiFast emulator summary:')
+    if bounds is None:
+        info('Trust regions shown as thin / std / ext. Use '
+             'print_info(name, bounds="std") for one selected region.')
+    else:
+        info('Showing trust region: {}'.format(bounds))
+
+    groups = ('Power spectra', 'Growth rates', 'CMB spectra', 'Other spectra')
+    for group in groups:
+        group_entries = [
+            entry for entry in metadata if entry['group'] == group
+        ]
+        if not group_entries:
+            continue
+        print('\n')
+        print_level(1, group)
+        headers = ['Observable', 'Public call', 'Required inputs',
+                   'Grid / redshift domain']
+        headers = [write_green(x) for x in headers]
+        tab = []
+        for entry in group_entries:
+            tab.append([
+                write_blue(entry['name']),
+                entry['public_call'],
+                ', '.join(entry['required']),
+                _info_domain_summary(entry, bounds),
+            ])
+        print(tabulate(tab, headers=headers, tablefmt='grid'))
+    return
+
+
+def _print_detail(metadata, bounds):
+    """Print detailed information for a single spectrum emulator."""
+    info('HiFast emulator info:')
+
+    for entry in metadata:
+        print('\n')
+        print_level(1, 'Spectrum: {}'.format(entry['name']))
+
+        if bounds is None:
+            headers = ['Parameter', 'Thin', 'Std', 'Ext',
+                       'Can be derived from']
+        else:
+            headers = ['Parameter', 'Min', 'Max', 'Can be derived from']
+        headers = [write_green(x) for x in headers]
+        tab = _info_detail_rows(entry, bounds, color=True)
+        print(tabulate(tab, headers=headers, tablefmt='grid'))
+
+    return
+
+
+def _print_info(
+        spectra, params, name=None, bounds=None, markdown=False, output=None):
+    """Print summary or detailed info for spectrum emulators.
     Args:
         spectra (dict): Mapping from spectrum names to Spectrum objects.
         params (dict): Mapping from spectrum names to Params objects.
         name (str | None): When provided, print info only for the named
             spectrum.
+        bounds (str | None): Optional trust region to display. Accepted
+            values are ``thin``, ``std``, and ``ext``. When omitted, all
+            available regions are shown.
+        markdown (bool): When True, render Markdown instead of terminal
+            tables.
+        output (str | None): Optional file path used only with
+            ``markdown=True``. When omitted, Markdown is printed to stdout.
     """
-    if name is not None:
-        spectra = {name: spectra[name]}
-        params = {name: params[name]}
-    info('HiFast emulator info:')
+    if bounds is not None and bounds not in _INFO_BOUNDS:
+        raise ValueError('bounds must be one of {}; got {}'.format(
+            _INFO_BOUNDS, bounds))
+    if output is not None and markdown is False:
+        raise ValueError('output can only be used with markdown=True')
 
-    for spec_name in spectra.keys():
-        print('\n')
-        print_level(1, 'Spectrum: {}'.format(spec_name))
-        spec = spectra[spec_name]
-        param = params[spec_name]
+    metadata = _build_info_metadata(spectra, params, name=name)
+    if markdown:
+        content = _format_info_markdown(
+            metadata, name=name, bounds=bounds)
+        if output is None:
+            print(content, end='')
+        else:
+            parent = os.path.dirname(os.path.abspath(output))
+            os.makedirs(parent, exist_ok=True)
+            with open(output, 'w', encoding='utf-8') as file:
+                file.write(content)
+            info('Wrote emulator README to {}'.format(output))
+        return content
 
-        headers = ['Parameter', 'Min', 'Max', 'Can be derived from']
-        headers = [write_green(x) for x in headers]
-        tab = []
-        for p_name in param._required:
-            if p_name in param._ranges:
-                p_min, p_max = param._ranges[p_name]
-            else:
-                p_min, p_max = 'N/A', 'N/A'
-            der = ', '.join([x for x in param._derived[p_name] if x != p_name])
-            tab.append([write_blue(p_name), p_min, p_max, der])
-
-        # Print k, z, ell ranges
-        if spec.k_min is not None and spec.k_max is not None:
-            k_min, k_max = spec.k_min, spec.k_max
-            tab.append([write_magenta('k [h/Mpc]'), k_min, k_max, 'N/A'])
-        if spec.z_min is not None and spec.z_max is not None:
-            z_min, z_max = spec.z_min, spec.z_max
-            tab.append([write_magenta('z'), z_min, z_max, 'N/A'])
-        if spec.ell_min is not None and spec.ell_max is not None:
-            ell_min, ell_max = spec.ell_min, spec.ell_max
-            tab.append([write_magenta('ell'), ell_min, ell_max, 'N/A'])
-
-        print(tabulate(tab, headers=headers, tablefmt='grid'))
-
-    return
+    if name is None:
+        return _print_summary(metadata, bounds)
+    return _print_detail(metadata, bounds)
 
 
 # ------------------- Scripts ------------------------------------------------#

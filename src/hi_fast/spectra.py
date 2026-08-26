@@ -18,7 +18,8 @@ class Spectrum(object):
             **kwargs: Keyword arguments produced by the training pipeline.
                 Required keys include ``name``, ``x_names``, ``x_ranges``,
                 scaler/PCA configs, the trained ``model``, reference spectra,
-                and CLASS arguments.
+                and CLASS arguments. Newer emulator bundles may also include
+                ``x_ranges_thin``, ``x_ranges_std``, and ``x_ranges_ext``.
         """
         # Name of the spectrum (str)
         self.name = kwargs['name']
@@ -28,8 +29,16 @@ class Spectrum(object):
         self.x_names = kwargs['x_names']
         # Placeholder for values needed by the emulator (list of floats)
         self.x_values = [None for _ in self.x_names]
-        # Parameters ranges (list of list of floats)
+        # Parameter ranges used by the current validation path. For the
+        # shipped bundles this matches the widest stored region.
         self.x_ranges = kwargs['x_ranges']
+        # Named trust regions stored during training. They are kept separate
+        # from x_ranges so existing validation behavior remains unchanged.
+        self.x_ranges_by_region = {
+            'thin': kwargs.get('x_ranges_thin', self.x_ranges),
+            'std': kwargs.get('x_ranges_std', self.x_ranges),
+            'ext': kwargs.get('x_ranges_ext', self.x_ranges),
+        }
         # Scalers used by the emulator. TODO: implement portability
         self.x_scaler = Scaler.choose_one(**kwargs['x_scaler'])
         self.y_scaler = Scaler.choose_one(**kwargs['y_scaler'])

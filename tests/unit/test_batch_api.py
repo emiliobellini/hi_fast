@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from hi_fast import HiFast
+import hi_fast.io as io_module
 import hi_fast.spectra as spectra_module
 
 
@@ -143,6 +144,103 @@ def test_cell_getters_fall_back_to_raw_emulator(hifast):
 def test_unknown_cell_name_is_informative(hifast):
     with pytest.raises(ValueError, match="CMB spectrum 'XX'"):
         hifast.get_cell([2], {'a': 1.0, 'b': 2.0}, name='XX')
+
+
+def test_print_info_can_show_stored_trust_regions(capsys):
+    class SimpleSpectrum:
+        name = 'pk_m'
+        k_min = 0.001
+        k_max = 50.0
+        z_min = 0.0
+        z_max = 10.0
+        ell_min = None
+        ell_max = None
+
+    class SimpleParams:
+        _required = ['h']
+        _ranges = {'z_pk': [0.0, 10.0], 'h': [0.5, 0.9]}
+        _ranges_by_region = {
+            'thin': {'z_pk': [0.0, 2.0], 'h': [0.65, 0.73]},
+            'std': {'z_pk': [0.0, 3.0], 'h': [0.6, 0.8]},
+            'ext': {'z_pk': [0.0, 10.0], 'h': [0.5, 0.9]},
+        }
+        _derived = {'h': ['H0', 'h']}
+
+    spectra = {'pk_m': SimpleSpectrum()}
+    params = {'pk_m': SimpleParams()}
+
+    io_module._print_info(spectra, params)
+    output = capsys.readouterr().out
+    assert 'HiFast emulator summary' in output
+    assert 'Power spectra' in output
+    assert 'get_pk(..., name="m")' in output
+    assert 'h' in output
+    assert '[0, 3]' in output
+
+    io_module._print_info(spectra, params, name='pk_m')
+    output = capsys.readouterr().out
+    assert 'HiFast emulator info' in output
+    assert 'Thin' in output
+    assert 'Std' in output
+    assert 'Ext' in output
+    assert '[0.65, 0.73]' in output
+
+    io_module._print_info(spectra, params, name='pk_m', bounds='std')
+    output = capsys.readouterr().out
+    assert 'Min' in output
+    assert 'Max' in output
+    assert '0.6' in output
+    assert '0.8' in output
+
+
+def test_print_info_can_render_markdown(capsys, tmp_path):
+    class SimpleSpectrum:
+        name = 'pk_m'
+        k_min = 0.001
+        k_max = 50.0
+        z_min = 0.0
+        z_max = 10.0
+        ell_min = None
+        ell_max = None
+
+    class SimpleParams:
+        _required = ['h']
+        _ranges = {'z_pk': [0.0, 10.0], 'h': [0.5, 0.9]}
+        _ranges_by_region = {
+            'thin': {'z_pk': [0.0, 2.0], 'h': [0.65, 0.73]},
+            'std': {'z_pk': [0.0, 3.0], 'h': [0.6, 0.8]},
+            'ext': {'z_pk': [0.0, 10.0], 'h': [0.5, 0.9]},
+        }
+        _derived = {'h': ['H0', 'h']}
+
+    spectra = {'pk_m': SimpleSpectrum()}
+    params = {'pk_m': SimpleParams()}
+
+    content = io_module._print_info(spectra, params, markdown=True)
+    output = capsys.readouterr().out
+    assert content == output
+    assert '# HiFast Emulator Summary' in content
+    assert '| Observable | Public call | Required inputs |' in content
+    assert '## Detailed Trust Regions' in content
+    assert '| h | [0.65, 0.73] | [0.6, 0.8] | [0.5, 0.9] | `H0` |' in content
+
+    output_path = tmp_path / 'README.md'
+    written = io_module._print_info(
+        spectra, params, name='pk_m', bounds='std',
+        markdown=True, output=str(output_path))
+    assert output_path.read_text() == written
+    assert '# HiFast Emulator: pk_m' in written
+    assert '| h | 0.6 | 0.8 | `H0` |' in written
+
+
+def test_print_info_rejects_unknown_trust_region():
+    with pytest.raises(ValueError, match='bounds must be one of'):
+        io_module._print_info({}, {}, bounds='wide')
+
+
+def test_print_info_rejects_output_without_markdown():
+    with pytest.raises(ValueError, match='markdown=True'):
+        io_module._print_info({}, {}, output='README.md')
 
 
 @pytest.mark.parametrize('name, expected_call', [

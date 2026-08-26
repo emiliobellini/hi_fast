@@ -150,6 +150,8 @@ class HiFast(object):
         spectra = {}
         # Load emulators as dictionary
         for file in io.Folder(name, root=root).list_files():
+            if not file.endswith('.joblib'):
+                continue
             # Read content emu
             emufile = io.EmuFile(file)
 
@@ -589,12 +591,24 @@ class HiFast(object):
 
         return out
 
-    def print_info(self, name=None):
+    def print_info(self, name=None, bounds=None, markdown=False, output=None):
         """
         Print summary info for each spectrum emulator.
         Args:
             name (str | None): When provided, print info only for the named
                 spectrum.
+            bounds (str | None): Optional trust region to display. Choose
+                ``thin``, ``std``, or ``ext``. When omitted, all stored
+                regions are shown.
+            markdown (bool): When True, render Markdown instead of terminal
+                tables.
+            output (str | None): Optional file path used only with
+                ``markdown=True``. When omitted, Markdown is printed.
         """
-        io._print_info(self._spectra, self._params, name=name)
-        return
+        return io._print_info(
+            self._spectra,
+            self._params,
+            name=name,
+            bounds=bounds,
+            markdown=markdown,
+            output=output)

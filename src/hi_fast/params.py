@@ -31,6 +31,13 @@ class Params(object):
         self._ranges = {
             name: spectrum.x_ranges[spectrum.x_names.index(name)]
             for name in self._emu}
+        self._ranges_by_region = {
+            region: {
+                name: ranges[spectrum.x_names.index(name)]
+                for name in self._emu
+            }
+            for region, ranges in spectrum.x_ranges_by_region.items()
+        }
         # For each of the required parameters, get possible derived ones
         standard_rules, shooting_rules = self._conversion_rules()
         self._derived = {}
