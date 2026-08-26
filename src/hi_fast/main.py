@@ -117,6 +117,8 @@ class HiFast(object):
             dict[str, sp.Spectrum]: Mapping from spectrum name to the
             instantiated emulator object.
         """
+        if verbose:
+            io.title('HiFast: loading {} emulators'.format(name))
         # Initialize spectra dictionary
         spectra = {}
         # Load emulators as dictionary
@@ -132,7 +134,8 @@ class HiFast(object):
             # Store content
             spectra[content['name']] = sp.Spectrum.choose_one(**content)
         if verbose:
-            io.info('Loaded emulators for {} model'.format(name))
+            io.info('Loaded {} emulators for {} ----> {}'.format(
+                len(spectra), name, ', '.join(sorted(spectra.keys()))))
         return spectra
 
     @io.timeit

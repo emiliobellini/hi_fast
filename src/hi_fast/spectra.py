@@ -1,7 +1,6 @@
-import classy
+import hiclassy
 import numpy as np
 import scipy.interpolate as interp
-from . import io as io
 from ._tensorflow_config import tf
 from .pca import PCA
 from .scalers import Scaler
@@ -681,7 +680,7 @@ class Pk(Spectrum):
             params, precision, class_args, verbose=verbose)
 
         # Compute
-        self.cosmo = classy.Class()
+        self.cosmo = hiclassy.HiClass()
         self.cosmo.set(params)
         self.cosmo.compute()
 
@@ -890,7 +889,7 @@ class Fk(Pk):
             params, precision, class_args, verbose=verbose)
 
         # Compute
-        self.cosmo = classy.Class()
+        self.cosmo = hiclassy.HiClass()
         self.cosmo.set(params)
         self.cosmo.compute()
 
@@ -1064,7 +1063,7 @@ class Cell(Spectrum):
             params, precision, class_args, verbose=verbose)
 
         # Compute
-        self.cosmo = classy.Class()
+        self.cosmo = hiclassy.HiClass()
         self.cosmo.set(params)
         self.cosmo.compute()
 

@@ -674,6 +674,22 @@ def info(msg):
     return
 
 
+def title(msg, width=72):
+    """Print ``msg`` as a centered green section title.
+
+    Args:
+        msg (str): Title text.
+        width (int): Minimum width of the surrounding border.
+    """
+    width = max(width, len(msg))
+    border = '=' * width
+    print('\n{}\n{}\n{}'.format(
+        write_green(border),
+        write_green(msg.center(width)),
+        write_green(border)), flush=True)
+    return
+
+
 def print_level(num, msg, arrow=True):
     """Pretty-print messages with indentation levels.
 
