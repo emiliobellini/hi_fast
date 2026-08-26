@@ -1,4 +1,4 @@
-"""Time and validate scalar-old versus batch-first CMB spectra."""
+"""Time and validate one-row versus multi-row CMB-spectrum batching."""
 import argparse
 import time
 
@@ -47,13 +47,13 @@ def main():
             params.append(values)
         load_time = time.perf_counter() - start_load
         name = spectrum.removeprefix('cl_').removesuffix('_lensed')
-        old = np.empty_like(data)
+        one_row = np.empty_like(data)
 
         start = time.perf_counter()
         for index, row in enumerate(params):
-            old[index] = cosmo.get_cell_old(
-                ell, row, name=name, squeeze=True)
-        old_time = time.perf_counter() - start
+            one_row[index] = cosmo.get_cell(
+                ell, row, name=name, batch_size=1, squeeze=True)
+        one_row_time = time.perf_counter() - start
 
         batch = np.empty_like(data)
         start = time.perf_counter()
@@ -66,15 +66,15 @@ def main():
         print('\n{}: {} rows, {} ell modes'.format(
             spectrum, len(params), len(ell)))
         print('Data loading: {:.6f} s'.format(load_time))
-        print('Old scalar:  {:.6f} s ({:.6f} s/row)'.format(
-            old_time, old_time / len(params)))
+        print('One-row:     {:.6f} s ({:.6f} s/row)'.format(
+            one_row_time, one_row_time / len(params)))
         print('Batch:       {:.6f} s ({:.6f} s/row)'.format(
             batch_time, batch_time / len(params)))
-        print('Batch/old time ratio: {:.6f}x'.format(
-            batch_time / old_time))
-        report('old/data', old, data)
+        print('Batch/one-row time ratio: {:.6f}x'.format(
+            batch_time / one_row_time))
+        report('one-row/data', one_row, data)
         report('batch/data', batch, data)
-        report('old/batch', old, batch)
+        report('one-row/batch', one_row, batch)
 
 
 if __name__ == '__main__':

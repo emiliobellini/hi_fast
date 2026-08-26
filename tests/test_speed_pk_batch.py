@@ -1,4 +1,4 @@
-"""Time and validate scalar-old versus batch-first P(k,z) evaluation."""
+"""Time and validate one-row versus multi-row P(k,z) batching."""
 import argparse
 import time
 
@@ -65,13 +65,13 @@ def main():
             args.data_file, spectrum, args.n_rows)
         params = parameters(cosmo, spectrum, names, rows)
         short_name = spectrum.removeprefix('pk_')
-        old = np.empty_like(data)
+        one_row = np.empty_like(data)
 
         start = time.perf_counter()
         for index, (z_one, row) in enumerate(zip(z, params)):
-            old[index] = cosmo.get_pk_old(
-                k, z_one, row, name=short_name, squeeze=True)
-        old_time = time.perf_counter() - start
+            one_row[index] = cosmo.get_pk(
+                k, z_one, row, name=short_name, batch_size=1, squeeze=True)
+        one_row_time = time.perf_counter() - start
 
         batch = np.empty_like(data)
         start = time.perf_counter()
@@ -83,15 +83,15 @@ def main():
 
         print('\n{}: {} rows, {} k modes'.format(spectrum, len(z), len(k)))
         print('Data loading: {:.6f} s'.format(load_time))
-        print('Old scalar:  {:.6f} s ({:.6f} s/row)'.format(
-            old_time, old_time / len(z)))
+        print('One-row:     {:.6f} s ({:.6f} s/row)'.format(
+            one_row_time, one_row_time / len(z)))
         print('Batch:       {:.6f} s ({:.6f} s/row)'.format(
             batch_time, batch_time / len(z)))
-        print('Batch/old time ratio: {:.6f}x'.format(
-            batch_time / old_time))
-        report('old/data', old, data)
+        print('Batch/one-row time ratio: {:.6f}x'.format(
+            batch_time / one_row_time))
+        report('one-row/data', one_row, data)
         report('batch/data', batch, data)
-        report('old/batch', old, batch)
+        report('one-row/batch', one_row, batch)
 
 
 if __name__ == '__main__':

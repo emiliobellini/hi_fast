@@ -59,21 +59,19 @@ def make_parameters(cosmo, spectrum, names, values):
     return params
 
 
-def evaluate(cosmo, k, z, params, name, method, from_pk):
-    """Evaluate one of the direct or preserved-old growth-rate paths."""
+def evaluate(cosmo, k, z, params, name, from_pk):
+    """Evaluate one cosmology through the public batch-first API."""
     # get_from_pk=True adds A_s and n_s to its input dictionary.
-    get_fk = getattr(cosmo, method)
-    return np.asarray(get_fk(
+    return np.asarray(cosmo.get_fk(
         k, z, params.copy(), name=name, get_from_pk=from_pk,
-        nonlinear=False, squeeze=True))
+        nonlinear=False, batch_size=1, squeeze=True))
 
 
-def benchmark(cosmo, k, redshifts, parameters, name, method, from_pk,
-              warmups, repeats):
+def benchmark(cosmo, k, redshifts, parameters, name, from_pk, warmups,
+              repeats):
     """Warm up and time one evaluation path over every selected row."""
     for _ in range(warmups):
-        evaluate(cosmo, k, redshifts[0], parameters[0], name, method,
-                 from_pk)
+        evaluate(cosmo, k, redshifts[0], parameters[0], name, from_pk)
 
     n_rows = len(redshifts)
     timings = np.empty((repeats, n_rows))
@@ -82,7 +80,7 @@ def benchmark(cosmo, k, redshifts, parameters, name, method, from_pk,
         for index, (z, params) in enumerate(zip(redshifts, parameters)):
             start = time.perf_counter()
             results[index] = evaluate(
-                cosmo, k, z, params, name, method, from_pk)
+                cosmo, k, z, params, name, from_pk)
             timings[repeat, index] = time.perf_counter() - start
     return results, timings.ravel()
 
@@ -160,30 +158,32 @@ def run_spectrum(cosmo, args, spectrum):
         args.warmups, args.repeats))
 
     _, direct_times = benchmark(
-        cosmo, k, redshifts, parameters, name, 'get_fk_old', False,
-        args.warmups, args.repeats)
-    old, old_times = benchmark(
-        cosmo, k, redshifts, parameters, name, 'get_fk_old', True,
-        args.warmups, args.repeats)
+        cosmo, k, redshifts, parameters, name, False, args.warmups,
+        args.repeats)
+    one_row, one_row_times = benchmark(
+        cosmo, k, redshifts, parameters, name, True, args.warmups,
+        args.repeats)
     batched, batch_times = benchmark_batch(
         cosmo, k, redshifts, parameters, name, args.batch_size,
         args.warmups, args.repeats)
 
     print_timings('Direct fk', direct_times)
-    print_timings('Old fk derived from pk', old_times)
+    print_timings('Fk derived from pk (one-row batches)', one_row_times)
     print_timings('Batched fk derived from pk (chunks)', batch_times)
     batch_time_per_row = (
         np.sum(batch_times) / (args.repeats * len(redshifts)))
     print('Batched mean time per cosmology: {:.6f} s'.format(
         batch_time_per_row))
-    print('Batched/old mean-time ratio per cosmology: {:.3f}x'.format(
-        batch_time_per_row / np.mean(old_times)))
+    print('Batched/one-row mean-time ratio per cosmology: {:.3f}x'.format(
+        batch_time_per_row / np.mean(one_row_times)))
 
     print('\nOutput validation')
-    print_validation('Old fk from pk versus stored data', old, stored_fk)
+    print_validation(
+        'One-row fk from pk versus stored data', one_row, stored_fk)
     print_validation('Batched fk from pk versus stored data',
                      batched, stored_fk)
-    print_validation('Old fk from pk versus batched fk', old, batched)
+    print_validation(
+        'One-row fk from pk versus batched fk', one_row, batched)
 
 
 def main():

@@ -221,114 +221,6 @@ class HiFast(object):
         return out
 
     @io.timeit
-    def get_pk_old(
-            self, k, z, params, name='m', nonlinear=False,
-            check_params_names=True, check_params_values=True,
-            squeeze=False, verbose=False, timeit=False):
-        """Evaluate P(k,z) with the pre-batch implementation."""
-        if nonlinear:
-            raise ValueError('Nonlinear Pk not yet implemented')
-        spectrum = self._spectra['pk_{}'.format(name)]
-        params = self._params[spectrum.name].get(
-            params, check_params_names=check_params_names,
-            check_params_values=check_params_values, verbose=verbose)
-        out = spectrum.get_old(k, z, params)
-        return out.squeeze() if squeeze else out
-
-    @io.timeit
-    def get_fk_old(
-            self,
-            k,
-            z,
-            params,
-            name='m',
-            get_from_pk=False,
-            nonlinear=False,
-            check_params_names=True,
-            check_params_values=True,
-            squeeze=False,
-            verbose=False,
-            timeit=False):
-        """Evaluate the emulator growth rate
-        ``f(k, z) = d ln P(k, z)/d ln a``.
-
-        Args:
-            k (float | sequence[float] | numpy.ndarray): Wavenumbers in
-                units of h/Mpc.
-            z (float | sequence[float] | numpy.ndarray): Redshifts to
-                evaluate.
-            params (dict[str, float]): Cosmological parameters.
-            name (str): Spectrum identifier; ``m``, ``cb``, or ``weyl``.
-            get_from_pk (bool): When True, compute the growth rate from
-                the power spectrum.
-            nonlinear (bool): Placeholder flag; nonlinear emulation is not
-                implemented yet.
-            check_params_names (bool): When True, validate coverage of all
-                required parameters.
-            check_params_values (bool): When True, ensure parameters are in
-                range.
-            squeeze (bool): When True, drop singleton dimensions in the
-                returned array.
-            verbose (bool): When True, echo provided and converted
-                parameters.
-            timeit (bool): When True, report evaluation time.
-
-        The returned growth rate is dimensionless.
-
-        Returns:
-            numpy.ndarray or float: Growth-rate values with the same shape
-            broadcasting rules as ``get_pk``.
-
-        Raises:
-            ValueError: If ``nonlinear`` is True.
-        """
-
-        # TODO: implement nonlinear
-        if nonlinear:
-            raise ValueError('Nonlinear Pk not yet implemented')
-
-        # Check if emulator is available; if not, compute from Pk
-        if get_from_pk is False and 'fk_{}'.format(name) not in self._spectra:
-            get_from_pk = True
-            io.warning('No emulator for fk_{} found; computing from Pk instead'
-                       ''.format(name))
-
-        # Select correct spectrum
-        if get_from_pk is True:
-            spectrum = self._spectra['pk_{}'.format(name)]
-            # Add fake parameters that are used in the Power Spectrum
-            # but not in the growth rate (fixed them to reference to
-            # avoid numerical issues)
-            params['A_s'] = spectrum.ref['params']['ln_A_s_1e10']
-            params['n_s'] = spectrum.ref['params']['n_s']
-        else:
-            spectrum = self._spectra['fk_{}'.format(name)]
-
-        # Get parameters
-        params = self._params[spectrum.name].get(
-            params,
-            check_params_names=check_params_names,
-            check_params_values=check_params_values,
-            verbose=verbose)
-
-        # Get output
-        if get_from_pk is True:
-            out = spectrum.get_fk_old(k, z, params)
-        else:
-            out = spectrum.get_old(k, z, params)
-
-        # Squeeze dimensions
-        if squeeze:
-            if out.shape == (1, 1):
-                return out[0, 0]
-            elif out.shape[0] == 1:
-                return out[0]
-            elif out.shape[1] == 1:
-                return out[:, 0]
-
-        return out
-
-    @io.timeit
     def get_fk(
             self,
             k,
@@ -468,22 +360,6 @@ class HiFast(object):
             return out.squeeze()
 
         return out
-
-    @io.timeit
-    def get_cell_old(
-            self, ell, params, name='TT', check_params_names=True,
-            check_params_values=True, squeeze=False, verbose=False,
-            timeit=False):
-        """Evaluate one CMB cosmology with the pre-batch implementation."""
-        try:
-            spectrum = self._spectra['cl_{}_lensed'.format(name)]
-        except KeyError:
-            spectrum = self._spectra['cl_{}'.format(name)]
-        params = self._params[spectrum.name].get(
-            params, check_params_names=check_params_names,
-            check_params_values=check_params_values, verbose=verbose)
-        out = spectrum.get_old(ell, params)
-        return out.squeeze() if squeeze else out
 
     @io.timeit
     def get_pk_from_class(
