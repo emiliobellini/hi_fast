@@ -11,7 +11,7 @@ import os
 import re
 import time
 from pickle import UnpicklingError
-from tensorflow import keras
+from ._tensorflow_config import keras
 from tabulate import tabulate
 from astropy.io import fits
 from collections import OrderedDict

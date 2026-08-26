@@ -114,6 +114,12 @@ pk = hifast.get_pk(
 The same `batch_size` convention applies to `get_fk` and `get_cell`. Passing
 `None` evaluates the complete parameter batch in one model call.
 
+HiFast suppresses TensorFlow's C++ startup diagnostics by default, including
+harmless messages about unavailable CUDA drivers on CPU-only systems. This
+suppression is limited to TensorFlow import; subsequent errors and warnings
+remain visible. If the import itself fails, its captured diagnostics are
+printed before the exception is propagated.
+
 ## Development Notes
 
 - Core source lives under `src/hi_fast/`.

@@ -1,8 +1,8 @@
 import classy
 import numpy as np
 import scipy.interpolate as interp
-import tensorflow as tf
 from . import io as io
+from ._tensorflow_config import tf
 from .pca import PCA
 from .scalers import Scaler
 
