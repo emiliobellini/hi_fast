@@ -123,6 +123,43 @@ The same `batch_size` convention applies to `get_fk` and `get_cell`. Passing
 Before submitting changes, run the conversion tests and ensure docstrings stay
 in sync with new behavior.
 
+### Automated tests
+
+Install the package with its test dependencies once per environment:
+
+```bash
+python -m pip install -e ".[test]"
+```
+
+Run the fast automated unit suite with:
+
+```bash
+python -m pytest
+```
+
+The pytest configuration collects only `tests/unit`. The other files directly
+under `tests/` are scientific validation, plotting, and performance scripts;
+run those explicitly when their FITS data or emulator assets are available.
+
+Useful commands include:
+
+```bash
+# More detail, including individual test names
+python -m pytest -v
+
+# Stop after the first failure
+python -m pytest -x
+
+# Run one test file
+python -m pytest tests/unit/test_batch_api.py
+
+# Include a source-coverage report
+python -m pytest --cov=hi_fast --cov-report=term-missing
+```
+
+GitHub Actions runs the unit suite and coverage command automatically for each
+push and pull request.
+
 ## License
 
 Distributed under the terms of the MIT license. See `LICENSE` for details.

@@ -19,6 +19,16 @@ dependencies = [
     "tabulate>=0.9",
 ]
 
+[project.optional-dependencies]
+test = [
+    "pytest>=8",
+    "pytest-cov>=5",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit"]
+addopts = "-ra"
+
 [project.urls]
 Homepage = "https://github.com/emiliobellini/hi_fast"
 Documentation = "https://github.com/emiliobellini/hi_fast/README.md"
