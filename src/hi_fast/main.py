@@ -111,6 +111,23 @@ class HiFast(object):
                                      sorted(self._spectra.keys())))
         return [name for name in names if name != 'z_pk']
 
+    def _get_cell_spectrum(self, name):
+        """Resolve a public CMB selector to an available emulator."""
+        lensed_name = 'cl_{}_lensed'.format(name)
+        raw_name = 'cl_{}'.format(name)
+        if lensed_name in self._spectra:
+            return self._spectra[lensed_name]
+        if raw_name in self._spectra:
+            return self._spectra[raw_name]
+
+        available = sorted({
+            key.removeprefix('cl_').removesuffix('_lensed')
+            for key in self._spectra if key.startswith('cl_')
+        })
+        raise ValueError(
+            'CMB spectrum {!r} is not available. Choose from {}'
+            .format(name, available))
+
     @io.timeit
     def _load(self, name, root, timeit=False, verbose=False):
         """Load every spectrum emulator shipped inside a bundle.
@@ -384,10 +401,7 @@ class HiFast(object):
         """
 
         # Select correct spectrum
-        try:
-            spectrum = self._spectra['cl_{}_lensed'.format(name)]
-        except KeyError:
-            spectrum = self._spectra['cl_{}'.format(name)]
+        spectrum = self._get_cell_spectrum(name)
 
         param_names = [key for key in spectrum.input_params_names
                        if key != 'z_pk']
@@ -562,10 +576,7 @@ class HiFast(object):
         """
 
         # Select correct spectrum
-        try:
-            spectrum = self._spectra['cl_{}_lensed'.format(name)]
-        except KeyError:
-            spectrum = self._spectra['cl_{}'.format(name)]
+        spectrum = self._get_cell_spectrum(name)
 
         # Get output
         out = spectrum.get_from_class(

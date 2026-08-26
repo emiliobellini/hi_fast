@@ -1069,9 +1069,9 @@ class Cell(Spectrum):
 
         # Get Cells
         cl_type = self.name.split('_')[1].lower()
-        try:
+        if self.name.endswith('_lensed'):
             out = self.cosmo.lensed_cl(lmax=ell.max())[cl_type]
-        except KeyError:
+        else:
             out = self.cosmo.raw_cl(lmax=ell.max())[cl_type]
 
         # Mask Cells

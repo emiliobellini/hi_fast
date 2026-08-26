@@ -76,6 +76,12 @@ cl_tt = hifast.get_cell([2, 10, 50], params, name="TT")
 print(pk.shape, fk.shape, cl_tt)
 ```
 
+For CMB spectra, the public `name` argument is the short selector (`TT`, `TE`,
+`EE`, `BB`, `Tp`, or `pp`). Complete names such as `cl_TT_lensed` identify
+emulator bundles and FITS entries; they are also the names accepted by
+`get_params_names`. HiFast prefers a lensed emulator and falls back to the
+corresponding raw emulator when only the latter is available.
+
 All `get_*` methods accept `check_params_names` / `check_params_values`
 flags to enforce input validation and expose a `timeit` switch for profiling.
 

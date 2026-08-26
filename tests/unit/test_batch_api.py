@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 
 from hi_fast import HiFast
+import hi_fast.spectra as spectra_module
 
 
 class FakeParams:
@@ -122,6 +123,62 @@ def test_cell_dictionary_and_array_inputs_are_equivalent(hifast):
     expected = hifast.get_cell(ell, dictionaries, name='TT')
     result = hifast.get_cell(ell, array, name='TT')
     np.testing.assert_allclose(result, expected)
+
+
+def test_cell_getters_fall_back_to_raw_emulator(hifast):
+    cell = hifast._spectra.pop('cl_TT_lensed')
+    params_handler = hifast._params.pop('cl_TT_lensed')
+    cell.name = 'cl_TT'
+    hifast._spectra[cell.name] = cell
+    hifast._params[cell.name] = params_handler
+
+    params = {'a': 1.0, 'b': 2.0}
+    emulator = hifast.get_cell([2, 10], params, name='TT')
+    from_class = hifast.get_cell_from_class([2, 10], params, name='TT')
+
+    assert emulator.shape == (1, 2)
+    assert from_class.shape == (1, 2)
+
+
+def test_unknown_cell_name_is_informative(hifast):
+    with pytest.raises(ValueError, match="CMB spectrum 'XX'"):
+        hifast.get_cell([2], {'a': 1.0, 'b': 2.0}, name='XX')
+
+
+@pytest.mark.parametrize('name, expected_call', [
+    ('cl_TT_lensed', 'lensed'),
+    ('cl_TT', 'raw'),
+])
+def test_cell_class_source_follows_emulator_name(
+        monkeypatch, name, expected_call):
+    calls = []
+
+    class FakeHiClass:
+        def set(self, params):
+            pass
+
+        def compute(self):
+            pass
+
+        def lensed_cl(self, lmax):
+            calls.append('lensed')
+            return {'tt': np.ones(lmax + 1)}
+
+        def raw_cl(self, lmax):
+            calls.append('raw')
+            return {'tt': np.ones(lmax + 1)}
+
+    monkeypatch.setattr(spectra_module.hiclassy, 'HiClass', FakeHiClass)
+    spectrum = spectra_module.Cell.__new__(spectra_module.Cell)
+    spectrum.name = name
+    spectrum.class_args = {}
+    spectrum.class_high_prec = {}
+    spectrum._get_input_params_class = (
+        lambda params, precision, class_args, verbose=False: params)
+
+    spectrum.get_from_class([2, 3], {})
+
+    assert calls == [expected_call]
 
 
 @pytest.mark.parametrize('method, kwargs', [

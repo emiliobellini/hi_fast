@@ -40,7 +40,10 @@ if __name__ == '__main__':
         verbose=True)
     # cosmo.print_info()
 
-    for spectrum in ['cl_TT', 'cl_TE', 'cl_EE', 'cl_BB', 'cl_Tp', 'cl_pp']:
+    spectra = (
+        'cl_TT_lensed', 'cl_TE_lensed', 'cl_EE_lensed',
+        'cl_BB_lensed', 'cl_Tp_lensed', 'cl_pp_lensed')
+    for spectrum in spectra:
 
         # Load reference Cl from file
         fits = FitsFile(args.data_file)
@@ -49,41 +52,41 @@ if __name__ == '__main__':
 
         # Check that parameters in the data file are
         # consistent with the emulator
-        if params_data != cosmo._params['{}_lensed'.format(spectrum)]._emu:
+        if params_data != cosmo._params[spectrum]._emu:
             raise ValueError(
                 'Parameters in the data file are not consistent with the'
                 ' emulator. Data file parameters: {}, Emulator parameters: {}'
                 ''.format(
                     params_data,
-                    cosmo._params['{}_lensed'.format(spectrum)]._emu))
+                    cosmo._params[spectrum]._emu))
 
         # Assign parameters to the emulator
         # Varied parameters
         params = {key: val for key, val in zip(params_data, x_data)}
         # Extract additional parameters from the default values
-        for param in cosmo._params['{}_lensed'.format(spectrum)]._additional:
+        for param in cosmo._params[spectrum]._additional:
             if param not in params:
-                params[param] = cosmo._spectra[
-                    '{}_lensed'.format(spectrum)].class_args[param]
+                params[param] = cosmo._spectra[spectrum].class_args[param]
 
-        ref_ell = fits.get_data('ell_range_{}_lensed'.format(spectrum))
+        ref_ell = fits.get_data('ell_range_{}'.format(spectrum))
 
-        cl_over_cl_ref = fits.get_data(
-            '{}_lensed'.format(spectrum))[args.idx_data]
-        ref_cl = fits.get_data('ref_{}_lensed'.format(spectrum))[0]
+        cl_over_cl_ref = fits.get_data(spectrum)[args.idx_data]
+        ref_cl = fits.get_data('ref_{}'.format(spectrum))[0]
         cl_data = ref_cl * cl_over_cl_ref
+
+        name = spectrum.removeprefix('cl_').removesuffix('_lensed')
 
         cl_emu = cosmo.get_cell(
             ref_ell,
             params,
-            name=spectrum.split('_')[-1],
+            name=name,
             squeeze=False,
             timeit=True)
 
         cl_class_0 = cosmo.get_cell_from_class(
             ref_ell,
             params,
-            name=spectrum.split('_')[-1],
+            name=name,
             squeeze=False,
             precision=0,
             timeit=True)
@@ -91,7 +94,7 @@ if __name__ == '__main__':
         cl_class_1 = cosmo.get_cell_from_class(
             ref_ell,
             params,
-            name=spectrum.split('_')[-1],
+            name=name,
             squeeze=False,
             precision=1,
             timeit=True)
@@ -99,7 +102,7 @@ if __name__ == '__main__':
         cl_class_2 = cosmo.get_cell_from_class(
             ref_ell,
             params,
-            name=spectrum.split('_')[-1],
+            name=name,
             squeeze=False,
             precision=2,
             timeit=True)
