@@ -1,6 +1,8 @@
 from . import _tensorflow_config  # noqa: F401
 from .main import HiFast
 
+__all__ = ['HiFast']
+
 # TODO:
 # - integrate class so that computation is not repeated when asking for different spectra
 # - integrate background quantities from class
