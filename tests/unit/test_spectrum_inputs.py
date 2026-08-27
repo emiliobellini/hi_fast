@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from hi_fast.spectra import Cell, Pk, Spectrum
+from hi_fast.spectra import Cell, Fk, Pk, Spectrum
 
 
 def test_coordinate_normalization_accepts_general_sequences():
@@ -81,3 +81,16 @@ def test_reference_grid_caches_do_not_alias_caller_arrays():
     ell[0] = 3
 
     np.testing.assert_array_equal(cell.stored['ell'], [10, 2])
+
+
+@pytest.mark.parametrize('spectrum, method', [
+    (Pk.__new__(Pk), 'get'),
+    (Pk.__new__(Pk), 'get_from_class'),
+    (Pk.__new__(Pk), 'get_fk'),
+    (Fk.__new__(Fk), 'get'),
+    (Fk.__new__(Fk), 'get_from_class'),
+])
+def test_grid_spectra_consistently_reject_nonlinear_requests(
+        spectrum, method):
+    with pytest.raises(ValueError, match='Nonlinear Pk not yet implemented'):
+        getattr(spectrum, method)([0.1], [0.0], {}, nonlinear=True)

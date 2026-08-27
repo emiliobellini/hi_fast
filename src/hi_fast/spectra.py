@@ -560,26 +560,6 @@ class Pk(Spectrum):
 
         return P_primordial
 
-    def _get_weyl_pk(self, k, z, n_k, n_z, n_mu):
-        """Return the nonlinear Weyl power spectrum from CLASS.
-
-        Args:
-            k (numpy.ndarray): Wavenumbers in 1/Mpc with shape
-                ``(n_k, n_z, n_mu)``.
-            z (numpy.ndarray): Redshift samples.
-            n_k (int): Number of k values.
-            n_z (int): Number of z values.
-            n_mu (int): Number of mu values.
-
-        Returns:
-            numpy.ndarray: Weyl power spectrum evaluated at ``k`` and ``z``.
-        """
-
-        # TODO: for now we just call the linear one
-        pk = self._get_weyl_pk_lin(k, z, n_k, n_z, n_mu)
-
-        return pk
-
     def _get_weyl_pk_lin(self, k, z, n_k, n_z, n_mu):
         """Return the linear Weyl spectrum from CLASS.
 
@@ -627,7 +607,6 @@ class Pk(Spectrum):
             ValueError: If ``nonlinear`` is True.
         """
 
-        # TODO: implement nonlinear
         if nonlinear:
             raise ValueError('Nonlinear Pk not yet implemented')
 
@@ -703,7 +682,6 @@ class Pk(Spectrum):
             numpy.ndarray: Spectrum values in ``(Mpc/h)^3``.
         """
 
-        # TODO: implement nonlinear
         if nonlinear:
             raise ValueError('Nonlinear Pk not yet implemented')
 
@@ -714,18 +692,15 @@ class Pk(Spectrum):
             k, z, params, precision=precision, verbose=verbose)
         with self._use_class(params, requirements=requirements) as cosmo:
             # Get correct spectrum
-            if nonlinear is True and self.name.endswith('_cb'):
-                fun = cosmo.get_pk_cb
-            elif nonlinear is True and self.name.endswith('_m'):
-                fun = cosmo.get_pk
-            elif nonlinear is True and self.name.endswith('_weyl'):
-                fun = self._get_weyl_pk
-            elif nonlinear is False and self.name.endswith('_cb'):
+            if self.name.endswith('_cb'):
                 fun = cosmo.get_pk_cb_lin
-            elif nonlinear is False and self.name.endswith('_m'):
+            elif self.name.endswith('_m'):
                 fun = cosmo.get_pk_lin
-            elif nonlinear is False and self.name.endswith('_weyl'):
+            elif self.name.endswith('_weyl'):
                 fun = self._get_weyl_pk_lin
+            else:
+                raise ValueError(
+                    'Unsupported power spectrum {}'.format(self.name))
 
             # convert k in units of 1/Mpc
             n_mu = 1
@@ -910,7 +885,6 @@ class Fk(Pk):
             numpy.ndarray: Growth-rate values derived from CLASS outputs.
         """
 
-        # TODO: implement nonlinear
         if nonlinear:
             raise ValueError('Nonlinear Pk not yet implemented')
 
@@ -937,18 +911,18 @@ class Fk(Pk):
             # Get correct spectrum
             if self.name.endswith('_cb'):
                 pk_array, k_array, z_array = cosmo.get_pk_and_k_and_z(
-                    nonlinear=nonlinear,
+                    nonlinear=False,
                     only_clustering_species=True,
                     h_units=False)
             elif self.name.endswith('_m'):
                 pk_array, k_array, z_array = cosmo.get_pk_and_k_and_z(
-                    nonlinear=nonlinear,
+                    nonlinear=False,
                     only_clustering_species=False,
                     h_units=False)
             elif self.name.endswith('_weyl'):
                 pk_array, k_array, z_array = (
                     cosmo.get_Weyl_pk_and_k_and_z(
-                        nonlinear=nonlinear,
+                        nonlinear=False,
                         h_units=False))
 
             # Flip z_array (for interpolation it has to be increasing)

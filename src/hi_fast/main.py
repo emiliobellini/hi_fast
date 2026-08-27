@@ -540,7 +540,6 @@ class HiFast(object):
                 ``on_out_of_bounds="raise"``.
         """
 
-        # TODO: implement nonlinear
         if nonlinear:
             raise ValueError('Nonlinear Pk not yet implemented')
 
@@ -1151,7 +1150,6 @@ class HiFast(object):
             ValueError: If ``nonlinear`` is True.
         """
 
-        # TODO: implement nonlinear
         if nonlinear:
             raise ValueError('Nonlinear Pk not yet implemented')
 
@@ -1212,7 +1210,6 @@ class HiFast(object):
             ValueError: If ``nonlinear`` is True.
         """
 
-        # TODO: implement nonlinear
         if nonlinear:
             raise ValueError('Nonlinear Pk not yet implemented')
 
