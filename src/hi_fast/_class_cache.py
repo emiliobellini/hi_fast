@@ -23,6 +23,7 @@ class HiClassCache:
         self._base_key = None
         self._params = None
         self._coverage = None
+        self._background_table = None
         self._hits = 0
         self._misses = 0
 
@@ -144,10 +145,13 @@ class HiClassCache:
             raise
         return cosmo
 
-    def _get_or_compute(self, params, requirements=None):
+    def _get_or_compute(
+            self, params, requirements=None, key_params=None):
         """Return a reusable instance or replace it with a new computation."""
         requested_params = params.copy()
-        base_key, _ = self._request_parts(requested_params)
+        key_params = (requested_params if key_params is None
+                      else key_params.copy())
+        base_key, _ = self._request_parts(key_params)
         requested_coverage = self._requested_coverage(
             requested_params, requirements)
         if (self._cosmo is not None
@@ -160,21 +164,23 @@ class HiClassCache:
         if self._cosmo is not None and base_key == self._base_key:
             compute_params = self._merge_params(self._params, requested_params)
         new_cosmo = self._compute(compute_params)
-        new_key, new_coverage = self._request_parts(compute_params)
+        _, new_coverage = self._request_parts(compute_params)
         old_cosmo = self._cosmo
         self._cosmo = new_cosmo
-        self._base_key = new_key
+        self._base_key = base_key
         self._params = compute_params.copy()
         self._coverage = new_coverage
+        self._background_table = None
         self._misses += 1
         self._cleanup(old_cosmo)
         return self._cosmo
 
     @contextmanager
-    def use(self, params, requirements=None):
+    def use(self, params, requirements=None, key_params=None):
         """Yield a computed instance while protecting its native state."""
         with self._lock:
-            yield self._get_or_compute(params, requirements=requirements)
+            yield self._get_or_compute(
+                params, requirements=requirements, key_params=key_params)
 
     def clear(self):
         """Clear the cached computation and release native allocations."""
@@ -184,6 +190,22 @@ class HiClassCache:
             self._base_key = None
             self._params = None
             self._coverage = None
+            self._background_table = None
+
+    def get_background_table(self, params, key_params=None):
+        """Return a cached copy of the native HiCLASS background table."""
+        with self._lock:
+            cosmo = self._get_or_compute(
+                params, requirements={}, key_params=key_params)
+            if self._background_table is None:
+                self._background_table = {
+                    name: np.asarray(values).copy()
+                    for name, values in cosmo.get_background().items()
+                }
+            return {
+                name: values.copy()
+                for name, values in self._background_table.items()
+            }
 
     def info(self):
         """Return private diagnostics for tests and profiling."""

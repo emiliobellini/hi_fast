@@ -12,6 +12,44 @@ class HiFast(object):
 
     _TRUSTED_REGIONS = ('thin', 'std', 'ext')
     _OUT_OF_BOUNDS_POLICIES = ('raise', 'class')
+    # Public HiFast name -> vectorized hiclassy method accepting only z.
+    _BACKGROUND_AT_Z = {
+        'H': 'Hubble',
+        'comoving_distance': 'comoving_distance',
+        'angular_diameter_distance': 'angular_distance',
+        'luminosity_distance': 'luminosity_distance',
+        'growth_factor': 'scale_independent_growth_factor',
+        'growth_rate': 'scale_independent_growth_factor_f',
+    }
+    # Public names that are scalar properties on a computed HiClass object.
+    _BACKGROUND_SCALARS = (
+        'age',
+        'Omega_m',
+        'Omega_b',
+        'Omega_cdm',
+        'Omega_k',
+        'Omega_r',
+        'Omega_g',
+        'Omega_nu',
+        'Omega_Lambda',
+    )
+    _BACKGROUND_UNITS = {
+        'H': 'km/s/Mpc',
+        'comoving_distance': 'Mpc',
+        'angular_diameter_distance': 'Mpc',
+        'luminosity_distance': 'Mpc',
+        'growth_factor': 'dimensionless',
+        'growth_rate': 'dimensionless',
+        'age': 'Gyr',
+        'Omega_m': 'dimensionless',
+        'Omega_b': 'dimensionless',
+        'Omega_cdm': 'dimensionless',
+        'Omega_k': 'dimensionless',
+        'Omega_r': 'dimensionless',
+        'Omega_g': 'dimensionless',
+        'Omega_nu': 'dimensionless',
+        'Omega_Lambda': 'dimensionless',
+    }
 
     def __init__(self, name, root='emu', timeit=False, verbose=False):
         """Instantiate the hi_fast interface and preload all requested
@@ -50,6 +88,166 @@ class HiFast(object):
     def _get_class_cache_info(self):
         """Return private diagnostics for the shared HiCLASS cache."""
         return self._class_cache.info()
+
+    def _get_background_class_request(
+            self, params, precision=0, verbose=False):
+        """Return minimal compute parameters and a cache-compatible key."""
+        if 'pk_m' in self._spectra:
+            spectrum = self._spectra['pk_m']
+        else:
+            spectrum = next(iter(self._spectra.values()))
+        class_args = {name: value
+                      for name, value in spectrum.class_args.items()
+                      if name not in spectrum.class_high_prec}
+        key_params = spectrum._get_input_params_class(
+            params, precision, class_args, verbose=verbose)
+
+        # CLASS rejects perturbation, primordial, and thermodynamics options
+        # when only the background module is requested. Keep them in the
+        # logical cache key, but omit them from the fast background run.
+        unused = {
+            'output', 'P_k_max_h/Mpc', 'P_k_max_1/Mpc', 'z_max_pk',
+            'l_max_scalars', 'lensing', 'modes', 'k_pivot', 'YHe',
+            'ln_A_s_1e10', 'A_s', 'n_s', 'tau_reio', 'sigma8', 'S8',
+            'sigma8_m', 'S8_m',
+        }
+        unused.update(spectrum.class_high_prec)
+        compute_params = {
+            name: value for name, value in key_params.items()
+            if name not in unused
+            and (not name.endswith('_verbose')
+                 or name in ('input_verbose', 'background_verbose'))
+        }
+        return compute_params, key_params
+
+    @staticmethod
+    def _extract_background(cosmo, z, quantities, squeeze):
+        """Extract selected background quantities from a computed instance."""
+        result = {}
+        for quantity in quantities:
+            if quantity in HiFast._BACKGROUND_AT_Z:
+                method = getattr(
+                    cosmo, HiFast._BACKGROUND_AT_Z[quantity])
+                value = np.asarray(method(z))
+                if quantity == 'H':
+                    # hiclassy.Hubble returns H(z)/c in inverse Mpc.
+                    value = value * 299792.458
+                result[quantity] = value.squeeze() if squeeze else value
+            else:
+                result[quantity] = getattr(cosmo, quantity)
+        return result
+
+    @io.timeit
+    def get_background(
+            self,
+            params,
+            z=None,
+            quantities=None,
+            precision=0,
+            squeeze=False,
+            verbose=False,
+            timeit=False):
+        """Compute background quantities directly with HiCLASS.
+
+        Args:
+            params (dict[str, float]): One cosmology in HiFast nomenclature.
+            z (float | sequence[float] | numpy.ndarray | None): Redshifts for
+                quantities that depend on redshift.
+            quantities (str | sequence[str] | None): Quantities to return.
+                ``None`` returns every supported quantity.
+            precision (int | dict[str, float]): CLASS precision preset or
+                explicit overrides, used also for cache compatibility.
+            squeeze (bool): Drop singleton dimensions from redshift-dependent
+                results.
+            verbose (bool): Enable CLASS input and background diagnostics.
+            timeit (bool): Report the evaluation time.
+
+        Returns:
+            dict: Requested quantities. Distances are in Mpc, ``H`` is in
+            km/s/Mpc, ``age`` is in Gyr, and other values are dimensionless.
+        """
+        if not isinstance(params, dict):
+            raise ValueError('params must be one cosmology dictionary')
+        available = (tuple(self._BACKGROUND_AT_Z)
+                     + self._BACKGROUND_SCALARS)
+        if quantities is None:
+            quantities = available
+        elif isinstance(quantities, str):
+            quantities = (quantities,)
+        else:
+            quantities = tuple(quantities)
+        if not quantities:
+            raise ValueError('quantities must not be empty')
+        unknown = sorted(set(quantities) - set(available))
+        if unknown:
+            raise ValueError(
+                'Unknown background quantities: {}. Choose from {}'
+                .format(unknown, list(available)))
+        needs_z = any(name in self._BACKGROUND_AT_Z for name in quantities)
+        if needs_z and z is None:
+            raise ValueError(
+                'z is required for redshift-dependent background quantities')
+        if z is not None:
+            z = np.atleast_1d(z)
+            if z.ndim != 1 or not z.size:
+                raise ValueError(
+                    'z must be a scalar or a non-empty one-dimensional array')
+
+        compute_params, key_params = self._get_background_class_request(
+            params, precision=precision, verbose=verbose)
+        with self._class_cache.use(
+                compute_params, requirements={}, key_params=key_params
+                ) as cosmo:
+            return self._extract_background(
+                cosmo, z, quantities, squeeze=squeeze)
+
+    @io.timeit
+    def get_background_table(
+            self,
+            params,
+            precision=0,
+            verbose=False,
+            timeit=False):
+        """Return HiCLASS's complete native background evolution table.
+
+        Args:
+            params (dict[str, float]): One cosmology in HiFast nomenclature.
+            precision (int | dict[str, float]): CLASS precision preset or
+                explicit overrides, used also for cache compatibility.
+            verbose (bool): Enable CLASS input and background diagnostics.
+            timeit (bool): Report the evaluation time.
+
+        Returns:
+            dict[str, numpy.ndarray]: Native HiCLASS background columns on
+            CLASS's internal time/redshift sampling. Column names and units
+            are defined by the installed HiCLASS version.
+        """
+        if not isinstance(params, dict):
+            raise ValueError('params must be one cosmology dictionary')
+        compute_params, key_params = self._get_background_class_request(
+            params, precision=precision, verbose=verbose)
+        return self._class_cache.get_background_table(
+            compute_params, key_params=key_params)
+
+    @classmethod
+    def _background_info(cls):
+        """Return public-to-HiCLASS background nomenclature metadata."""
+        rows = []
+        for name, member in cls._BACKGROUND_AT_Z.items():
+            rows.append({
+                'name': name,
+                'hiclassy': '{}(z)'.format(member),
+                'input': 'z',
+                'units': cls._BACKGROUND_UNITS[name],
+            })
+        for name in cls._BACKGROUND_SCALARS:
+            rows.append({
+                'name': name,
+                'hiclassy': name,
+                'input': '—',
+                'units': cls._BACKGROUND_UNITS[name],
+            })
+        return rows
 
     @staticmethod
     def _batch_ranges(length, batch_size):
@@ -1107,4 +1305,5 @@ class HiFast(object):
             bounds=bounds,
             markdown=markdown,
             output=output,
+            background=self._background_info(),
             validation=getattr(self, '_validation', None))

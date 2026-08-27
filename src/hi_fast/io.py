@@ -883,7 +883,8 @@ def _print_validation(metadata, bounds):
         print(tabulate(rows, headers=headers, tablefmt='grid'))
 
 
-def _format_info_markdown(metadata, name=None, bounds=None):
+def _format_info_markdown(
+        metadata, name=None, bounds=None, background=None):
     """Render emulator metadata as Markdown."""
     lines = []
     if name is None:
@@ -928,6 +929,23 @@ def _format_info_markdown(metadata, name=None, bounds=None):
                 rows))
             lines.append('')
 
+        if background:
+            lines.extend([
+                '## Direct HiCLASS Background Quantities',
+                '',
+                ('These quantities are available through `get_background`; '
+                 '`get_background_table` returns the complete native '
+                 'HiCLASS table.'),
+                '',
+                _markdown_table(
+                    ['HiFast name', 'HiCLASS member', 'Additional input',
+                     'Units'],
+                    [[entry['name'], '`{}`'.format(entry['hiclassy']),
+                      entry['input'], entry['units']]
+                     for entry in background]),
+                '',
+            ])
+
     _append_validation_markdown(lines, metadata, bounds)
 
     lines.append('## Detailed Trust Regions')
@@ -954,7 +972,7 @@ def _format_info_markdown(metadata, name=None, bounds=None):
     return '\n'.join(lines).rstrip() + '\n'
 
 
-def _print_summary(metadata, bounds):
+def _print_summary(metadata, bounds, background=None):
     """Print a compact grouped overview of all loaded observables."""
     info('HiFast emulator summary:')
     if bounds is None:
@@ -986,6 +1004,18 @@ def _print_summary(metadata, bounds):
                 _info_domain_summary(entry, bounds),
             ])
         print(tabulate(tab, headers=headers, tablefmt='grid'))
+    if background:
+        print('\n')
+        print_level(1, 'Direct HiCLASS background quantities')
+        headers = ['HiFast name', 'HiCLASS member', 'Additional input',
+                   'Units']
+        headers = [write_green(x) for x in headers]
+        rows = [[write_blue(entry['name']), entry['hiclassy'],
+                 entry['input'], entry['units']]
+                for entry in background]
+        print(tabulate(rows, headers=headers, tablefmt='grid'))
+        info('Use get_background(...) for selected values or '
+             'get_background_table(...) for the native HiCLASS table.')
     return
 
 
@@ -1014,7 +1044,7 @@ def _print_detail(metadata, bounds):
 
 def _print_info(
         spectra, params, name=None, bounds=None, markdown=False, output=None,
-        validation=None):
+        validation=None, background=None):
     """Print summary or detailed info for spectrum emulators.
     Args:
         spectra (dict): Mapping from spectrum names to Spectrum objects.
@@ -1029,6 +1059,8 @@ def _print_info(
         output (str | None): Optional file path used only with
             ``markdown=True``. When omitted, Markdown is printed to stdout.
         validation (dict | None): Optional held-out validation report.
+        background (list[dict] | None): Public background nomenclature shown
+            in the all-observables summary.
     """
     if bounds is not None and bounds not in _INFO_BOUNDS:
         raise ValueError('bounds must be one of {}; got {}'.format(
@@ -1040,7 +1072,7 @@ def _print_info(
         spectra, params, name=name, validation=validation)
     if markdown:
         content = _format_info_markdown(
-            metadata, name=name, bounds=bounds)
+            metadata, name=name, bounds=bounds, background=background)
         if output is None:
             print(content, end='')
         else:
@@ -1052,7 +1084,7 @@ def _print_info(
         return content
 
     if name is None:
-        return _print_summary(metadata, bounds)
+        return _print_summary(metadata, bounds, background=background)
     return _print_detail(metadata, bounds)
 
 

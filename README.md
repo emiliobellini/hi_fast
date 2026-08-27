@@ -229,7 +229,8 @@ fk_from_pk = hifast.get_fk(k, z, params, name="m", get_from_pk=True)
 explicit HiCLASS calculations for one cosmology. Their `precision` argument
 accepts presets `0`, `1`, and `2`, or a dictionary of precision overrides.
 HiFast privately retains the latest compatible HiCLASS computation and shares
-it across these methods and automatic out-of-bounds fallbacks. Requests reuse
+it across these methods, background quantities, and automatic out-of-bounds
+fallbacks. Requests reuse
 the calculation when the cosmological and precision parameters are unchanged
 and its computed outputs, wavenumber/redshift ranges, and multipole range
 cover the new observable. A request requiring wider coverage upgrades the
@@ -262,6 +263,56 @@ pk_m = results["pk"]["m"]
 The `pk`, `fk`, and `cell` groups accept the same short spectrum names as the
 individual methods. The nested result dictionary mirrors the request. Set
 `squeeze=True` to apply the usual singleton-dimension removal to each result.
+
+Background quantities require no emulator and use a fast background-only
+HiCLASS calculation:
+
+```python
+background = hifast.get_background(
+    params,
+    z=[0.0, 0.5, 1.0],
+    quantities=[
+        "H",
+        "comoving_distance",
+        "angular_diameter_distance",
+        "growth_factor",
+        "growth_rate",
+        "age",
+        "Omega_m",
+    ],
+)
+```
+
+Supported redshift-dependent quantities are `H`, `comoving_distance`,
+`angular_diameter_distance`, `luminosity_distance`, `growth_factor`, and
+`growth_rate`. Supported scalar quantities are `age`, `Omega_m`, `Omega_b`,
+`Omega_cdm`, `Omega_k`, `Omega_r`, `Omega_g`, `Omega_nu`, and `Omega_Lambda`.
+Distances are returned in Mpc, `H` in km/s/Mpc, and the age in Gyr. Omitting
+`quantities` returns all supported values. A compatible existing spectral
+HiCLASS calculation is reused; otherwise the background-only calculation
+typically takes only a few hundredths of a second.
+
+For access to every native column on CLASS's internal sampling, use:
+
+```python
+table = hifast.get_background_table(params)
+z_class = table["z"]
+h_over_c = table["H [1/Mpc]"]
+```
+
+The table's column names and units come directly from the installed HiCLASS
+version. `print_info()` lists the stable HiFast background nomenclature next
+to the corresponding HiCLASS method or property; generated emulator READMEs
+include the same table. The materialized native table is cached with the
+HiCLASS instance, because exporting all internal columns is more expensive
+than copying the resulting arrays. It is invalidated automatically whenever
+the underlying CLASS computation is replaced or upgraded.
+
+For developers, `_BACKGROUND_AT_Z` maps public names to vectorized HiCLASS
+methods whose only argument is `z`; `_BACKGROUND_SCALARS` lists computed
+HiCLASS properties. New entries also need a unit in `_BACKGROUND_UNITS`. A
+quantity requiring additional arguments or CLASS modules needs dedicated
+extraction and computation requirements rather than only a registry entry.
 
 Only linear power spectra and growth rates are currently supported;
 `nonlinear=True` raises an exception.

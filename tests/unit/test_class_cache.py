@@ -18,6 +18,7 @@ class FakeHiClass:
         self.compute_calls = 0
         self.cleanup_calls = 0
         self.empty_calls = 0
+        self.background_calls = 0
         self.__class__.instances.append(self)
 
     def set(self, params):
@@ -35,6 +36,36 @@ class FakeHiClass:
     def h(self):
         return 0.7
 
+    def Hubble(self, z):
+        return np.ones_like(np.asarray(z), dtype=float) / 3000.0
+
+    def comoving_distance(self, z):
+        return 1000.0 * np.asarray(z)
+
+    def angular_distance(self, z):
+        z = np.asarray(z)
+        return 1000.0 * z / (1.0 + z)
+
+    def luminosity_distance(self, z):
+        z = np.asarray(z)
+        return 1000.0 * z * (1.0 + z)
+
+    def scale_independent_growth_factor(self, z):
+        return 1.0 / (1.0 + np.asarray(z))
+
+    def scale_independent_growth_factor_f(self, z):
+        return 0.5 + 0.1 * np.asarray(z)
+
+    age = 13.8
+    Omega_m = 0.3
+    Omega_b = 0.05
+    Omega_cdm = 0.25
+    Omega_k = 0.0
+    Omega_r = 1e-4
+    Omega_g = 5e-5
+    Omega_nu = 5e-5
+    Omega_Lambda = 0.7
+
     def get_pk_lin(self, k, z, n_k, n_z, n_mu):
         return np.ones((n_k, n_z, n_mu))
 
@@ -42,6 +73,13 @@ class FakeHiClass:
         values = np.ones(lmax + 1)
         return {'tt': values, 'ee': values, 'te': values,
                 'bb': values, 'tp': values, 'pp': values}
+
+    def get_background(self):
+        self.background_calls += 1
+        return {
+            'z': np.array([1.0, 0.0]),
+            'H [1/Mpc]': np.array([2.0, 1.0]),
+        }
 
 
 def _params(**updates):
@@ -236,3 +274,80 @@ def test_combined_api_validates_request_structure():
     with np.testing.assert_raises_regex(ValueError, 'requires exactly'):
         hifast._parse_class_observables(
             {'pk': {'m': {'k': [0.1]}}})
+
+
+def test_background_uses_fast_compute_and_shared_cache(monkeypatch):
+    FakeHiClass.instances = []
+    monkeypatch.setattr(cache_module.hiclassy, 'HiClass', FakeHiClass)
+    cache = HiClassCache()
+    pk = spectra_module.Pk.__new__(spectra_module.Pk)
+    pk.name = 'pk_m'
+    pk.class_args = {
+        'output': 'tCl, pCl, lCl, mPk, dTk',
+        'P_k_max_h/Mpc': 50.0,
+        'l_max_scalars': 3000,
+        'lensing': 'yes',
+        'n_s': 0.96,
+        'tau_reio': 0.054,
+    }
+    pk.class_high_prec = {}
+    pk._class_cache = cache
+    hifast = HiFast.__new__(HiFast)
+    hifast._class_cache = cache
+    hifast._spectra = {'pk_m': pk}
+    params = {'h': 0.7, 'Omega_m': 0.3, 'n_s': 0.965,
+              'tau_reio': 0.055}
+
+    result = hifast.get_background(
+        params, z=[0.0, 1.0], quantities=['H', 'age', 'Omega_m'])
+
+    assert result['H'].shape == (2,)
+    assert result['age'] == 13.8
+    assert result['Omega_m'] == 0.3
+    assert 'output' not in FakeHiClass.instances[0].params
+    assert 'n_s' not in FakeHiClass.instances[0].params
+    assert 'tau_reio' not in FakeHiClass.instances[0].params
+    assert cache.info()['misses'] == 1
+
+    hifast.get_pk_from_class([0.1], [0.5], params, name='m')
+    hifast.get_background(params, z=0.5, quantities='H')
+
+    assert len(FakeHiClass.instances) == 2
+    assert cache.info()['misses'] == 2
+    assert cache.info()['hits'] == 1
+
+
+def test_background_validates_quantities_and_redshift():
+    hifast = HiFast.__new__(HiFast)
+
+    with np.testing.assert_raises_regex(ValueError, 'Unknown background'):
+        hifast.get_background({}, quantities='not_a_quantity')
+    with np.testing.assert_raises_regex(ValueError, 'z is required'):
+        hifast.get_background({}, quantities='H')
+
+
+def test_background_table_returns_native_columns(monkeypatch):
+    FakeHiClass.instances = []
+    monkeypatch.setattr(cache_module.hiclassy, 'HiClass', FakeHiClass)
+    cache = HiClassCache()
+    pk = spectra_module.Pk.__new__(spectra_module.Pk)
+    pk.name = 'pk_m'
+    pk.class_args = {'n_s': 0.96, 'tau_reio': 0.054}
+    pk.class_high_prec = {}
+    pk._class_cache = cache
+    hifast = HiFast.__new__(HiFast)
+    hifast._class_cache = cache
+    hifast._spectra = {'pk_m': pk}
+
+    table = hifast.get_background_table(
+        {'h': 0.7, 'Omega_m': 0.3, 'n_s': 0.965,
+         'tau_reio': 0.055})
+    table['z'][0] = 99.0
+    second = hifast.get_background_table(
+        {'h': 0.7, 'Omega_m': 0.3, 'n_s': 0.965,
+         'tau_reio': 0.055})
+
+    assert set(table) == {'z', 'H [1/Mpc]'}
+    np.testing.assert_array_equal(second['z'], [1.0, 0.0])
+    assert FakeHiClass.instances[0].background_calls == 1
+    assert cache.info()['hits'] == 1

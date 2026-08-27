@@ -410,6 +410,26 @@ def test_print_info_can_render_markdown(capsys, tmp_path):
     assert '| h | 0.6 | 0.8 | `H0` |' in written
 
 
+def test_print_info_shows_background_nomenclature(capsys):
+    background = [{
+        'name': 'H',
+        'hiclassy': 'Hubble(z)',
+        'input': 'z',
+        'units': 'km/s/Mpc',
+    }]
+
+    io_module._print_info({}, {}, background=background)
+    terminal = capsys.readouterr().out
+    assert 'Direct HiCLASS background quantities' in terminal
+    assert 'Hubble(z)' in terminal
+
+    markdown = io_module._print_info(
+        {}, {}, markdown=True, background=background)
+    capsys.readouterr()
+    assert '## Direct HiCLASS Background Quantities' in markdown
+    assert '`Hubble(z)`' in markdown
+
+
 def test_print_info_includes_held_out_validation(capsys):
     class SimpleSpectrum:
         name = 'pk_m'
