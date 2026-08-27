@@ -105,21 +105,28 @@ class Spectrum(object):
         yield self.cosmo
 
     def _to_numpy_array(self, x):
-        """Convert scalars/lists into numpy arrays.
+        """Return a finite, non-empty one-dimensional float array.
 
         Args:
-            x (int | float | list | numpy.ndarray): Input values.
+            x (scalar | sequence | numpy.ndarray): Input values.
 
         Returns:
-            numpy.ndarray: Array with float values.
+            numpy.ndarray: One-dimensional array with float values.
+
+        Raises:
+            ValueError: If the input is empty, non-numeric, non-finite, or
+                not one-dimensional.
         """
-        if isinstance(x, float):
-            x = np.array([x])
-        elif isinstance(x, int):
-            x = np.array([float(x)])
-        elif isinstance(x, list):
-            x = np.array(x)
-        return x
+        try:
+            values = np.atleast_1d(np.asarray(x, dtype=float))
+        except (TypeError, ValueError) as error:
+            raise ValueError('Input values must be numeric') from error
+        if values.ndim != 1 or not values.size:
+            raise ValueError(
+                'Input values must be a non-empty one-dimensional array')
+        if not np.all(np.isfinite(values)):
+            raise ValueError('Input values must be finite')
+        return values
 
     def _is_same_array(self, x, x_ref):
         """Return ``True`` when ``x`` matches the cached reference array.
@@ -457,8 +464,8 @@ class Pk(Spectrum):
         if same_k and same_z:
             return
 
-        self.stored['k'] = k
-        self.stored['z'] = z
+        self.stored['k'] = k.copy()
+        self.stored['z'] = z.copy()
         if self.ref['spectrum_z_spline'] is None:
             self.stored['ref_spectrum'] = None
             return
@@ -1002,7 +1009,28 @@ class Cell(Spectrum):
 
     def _to_numpy_array(self, x):
         x = Spectrum._to_numpy_array(self, x)
+        if not np.all(x == np.floor(x)):
+            raise ValueError('ell values must be integers')
         return x.astype(int)
+
+    def _store_ell_indices(self, ell):
+        """Cache reference indices in the requested order."""
+        if self._is_same_array(ell, self.stored['ell']):
+            return
+        self._check_ell_values(ell)
+        index_by_ell = {
+            int(value): index for index, value in enumerate(self.ref['ell'])}
+        try:
+            indices = np.asarray(
+                [index_by_ell[int(value)] for value in ell], dtype=int)
+        except KeyError as error:
+            raise ValueError(
+                'ell = {} is not available in the emulator grid'.format(
+                    error.args[0])) from error
+        self.stored['ell'] = ell.copy()
+        self.stored['ell_indices'] = indices
+        if self.ref['spectrum'] is not None:
+            self.stored['ref_spectrum'] = self.ref['spectrum'][indices]
 
     def _get_values_emu(self, params, **kwargs):
         """Pack emulator inputs for ``Cell`` spectra.
@@ -1033,24 +1061,7 @@ class Cell(Spectrum):
 
         # Check ell
         ell = self._to_numpy_array(ell)
-        # 1) is the same as stored?
-        same_ell = self._is_same_array(ell, self.stored['ell'])
-        # 2) is inside the emulated ranges?
-        if not same_ell:
-            self._check_ell_values(ell)
-
-        # If ell range changed, re-cut reference
-        if not same_ell:
-            self.stored['ell'] = ell
-            self.stored['ell_indices'] = np.where(
-                np.isin(self.ref['ell'], ell))[0]
-            # This is done only if the emulator emulates the ratio
-            # NOTE: For the Cells we could have just extracted the elements,
-            # but it was quicker to just copy/past from Pk
-
-            if self.ref['spectrum'] is not None:
-                self.stored['ref_spectrum'] = self.ref['spectrum'][
-                    self.stored['ell_indices']]
+        self._store_ell_indices(ell)
 
         # Prepare and evaluate all cosmologies in one model call.
         x = [self._get_values_emu(row) for row in params]
