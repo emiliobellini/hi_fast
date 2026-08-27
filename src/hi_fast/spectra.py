@@ -672,6 +672,25 @@ class Pk(Spectrum):
 
         return out
 
+    def _get_class_request(
+            self, k, z, params, precision=0, verbose=False):
+        """Build CLASS parameters and coverage for a P(k, z) request."""
+        k = self._to_numpy_array(k)
+        z = self._to_numpy_array(z)
+        class_args = {n: self.class_args[n] for n in self.class_args
+                      if n not in self.class_high_prec}
+        class_args['output'] = 'tCl, pCl, lCl, mPk, dTk'
+        class_args['P_k_max_h/Mpc'] = k.max()
+        class_args['z_max_pk'] = max(z.max(), 0.1)
+        class_params = self._get_input_params_class(
+            params, precision, class_args, verbose=verbose)
+        requirements = {
+            'output': 'mPk, dTk',
+            'P_k_max_h/Mpc': k.max(),
+            'z_max_pk': max(z.max(), 0.1),
+        }
+        return class_params, requirements
+
     def get_from_class(
             self, k, z, params, nonlinear=False, precision=0, verbose=False):
         """Compute ``P(k, z)`` or ``f(k, z)`` directly with CLASS.
@@ -696,22 +715,8 @@ class Pk(Spectrum):
         k = self._to_numpy_array(k)
         z = self._to_numpy_array(z)
 
-        # Get additional Class arguments needed to run smoothly
-        class_args = {n: self.class_args[n] for n in self.class_args
-                      if n not in self.class_high_prec}
-        class_args['output'] = 'tCl, pCl, lCl, mPk, dTk'
-        class_args['P_k_max_h/Mpc'] = k.max()
-        class_args['z_max_pk'] = max(z.max(), 0.1)
-
-        # Prepare parameters list
-        params = self._get_input_params_class(
-            params, precision, class_args, verbose=verbose)
-
-        requirements = {
-            'output': 'mPk, dTk',
-            'P_k_max_h/Mpc': k.max(),
-            'z_max_pk': max(z.max(), 0.1),
-        }
+        params, requirements = self._get_class_request(
+            k, z, params, precision=precision, verbose=verbose)
         with self._use_class(params, requirements=requirements) as cosmo:
             # Get correct spectrum
             if nonlinear is True and self.name.endswith('_cb'):
@@ -1079,6 +1084,23 @@ class Cell(Spectrum):
 
         return out
 
+    def _get_class_request(
+            self, ell, params, precision=0, verbose=False):
+        """Build CLASS parameters and coverage for a CMB request."""
+        ell = self._to_numpy_array(ell)
+        class_args = {n: self.class_args[n] for n in self.class_args
+                      if n not in self.class_high_prec}
+        class_args['output'] = 'tCl, pCl, lCl, mPk, dTk'
+        class_args['l_max_scalars'] = ell.max()
+        class_args['lensing'] = 'yes'
+        class_params = self._get_input_params_class(
+            params, precision, class_args, verbose=verbose)
+        requirements = {
+            'output': 'tCl, pCl, lCl',
+            'l_max_scalars': ell.max(),
+        }
+        return class_params, requirements
+
     def get_from_class(self, ell, params, precision=0, verbose=False):
         """Compute ``C_ell`` directly with CLASS.
 
@@ -1094,21 +1116,8 @@ class Cell(Spectrum):
 
         ell = self._to_numpy_array(ell)
 
-        # Get additional Class arguments needed to run smoothly
-        class_args = {n: self.class_args[n] for n in self.class_args
-                      if n not in self.class_high_prec}
-        class_args['output'] = 'tCl, pCl, lCl, mPk, dTk'
-        class_args['l_max_scalars'] = ell.max()
-        class_args['lensing'] = 'yes'
-
-        # Prepare parameters list
-        params = self._get_input_params_class(
-            params, precision, class_args, verbose=verbose)
-
-        requirements = {
-            'output': 'tCl, pCl, lCl',
-            'l_max_scalars': ell.max(),
-        }
+        params, requirements = self._get_class_request(
+            ell, params, precision=precision, verbose=verbose)
         with self._use_class(params, requirements=requirements) as cosmo:
             # Get Cells
             cl_type = self.name.split('_')[1].lower()

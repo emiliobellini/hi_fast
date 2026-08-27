@@ -739,6 +739,181 @@ class HiFast(object):
 
         return out
 
+    def _parse_class_observables(self, observables):
+        """Validate and flatten a structured multi-observable request."""
+        if not isinstance(observables, dict) or not observables:
+            raise ValueError('observables must be a non-empty dictionary')
+        unknown_groups = set(observables) - {'pk', 'fk', 'cell'}
+        if unknown_groups:
+            raise ValueError('Unknown observable groups: {}'.format(
+                sorted(unknown_groups)))
+
+        requests = []
+        expected = {
+            'pk': {'k', 'z'},
+            'fk': {'k', 'z'},
+            'cell': {'ell'},
+        }
+        for kind, group in observables.items():
+            if not isinstance(group, dict) or not group:
+                raise ValueError(
+                    'observables[{!r}] must be a non-empty dictionary'
+                    .format(kind))
+            for name, coordinates in group.items():
+                if not isinstance(coordinates, dict):
+                    raise ValueError(
+                        'The {} {} request must be a dictionary'.format(
+                            kind, name))
+                keys = set(coordinates)
+                if keys != expected[kind]:
+                    raise ValueError(
+                        'The {} {} request requires exactly {}; got {}'
+                        .format(kind, name, sorted(expected[kind]),
+                                sorted(keys)))
+
+                if kind == 'cell':
+                    spectrum = self._get_cell_spectrum(name)
+                    parsed_coordinates = {
+                        'ell': np.atleast_1d(coordinates['ell'])}
+                else:
+                    spectrum_name = '{}_{}'.format(kind, name)
+                    if kind == 'fk' and spectrum_name not in self._spectra:
+                        spectrum_name = 'pk_{}'.format(name)
+                    if spectrum_name not in self._spectra:
+                        raise ValueError(
+                            'Spectrum {}_{} is not available'.format(
+                                kind, name))
+                    spectrum = self._spectra[spectrum_name]
+                    parsed_coordinates = {
+                        'k': np.atleast_1d(coordinates['k']),
+                        'z': np.atleast_1d(coordinates['z']),
+                    }
+                if any(value.ndim != 1 or not value.size
+                       for value in parsed_coordinates.values()):
+                    raise ValueError(
+                        'Coordinates for {} {} must be non-empty scalars or '
+                        'one-dimensional arrays'.format(kind, name))
+                requests.append({
+                    'kind': kind,
+                    'name': name,
+                    'spectrum': spectrum,
+                    'coordinates': parsed_coordinates,
+                })
+        return requests
+
+    @staticmethod
+    def _get_common_class_params(
+            params, precision, requests, verbose=False):
+        """Build one compatible CLASS parameter dictionary for requests."""
+        common = None
+        common_key = None
+        outputs = set()
+        limits = {key: None for key in HiClassCache._LIMIT_KEYS}
+        for request in requests:
+            spectrum = request['spectrum']
+            coordinates = request['coordinates']
+            if request['kind'] == 'cell':
+                class_params, requirements = spectrum._get_class_request(
+                    coordinates['ell'], params, precision=precision,
+                    verbose=verbose)
+            else:
+                class_params, requirements = spectrum._get_class_request(
+                    coordinates['k'], coordinates['z'], params,
+                    precision=precision, verbose=verbose)
+            base_key, _ = HiClassCache._request_parts(class_params)
+            if common_key is None:
+                common = class_params.copy()
+                common.pop('output', None)
+                for key in HiClassCache._LIMIT_KEYS:
+                    common.pop(key, None)
+                common_key = base_key
+            elif base_key != common_key:
+                raise ValueError(
+                    'Requested observables require incompatible CLASS '
+                    'settings')
+            outputs.update(HiClassCache._outputs(
+                requirements.get('output')))
+            for key in HiClassCache._LIMIT_KEYS:
+                value = HiClassCache._limit(requirements.get(key))
+                if value is not None:
+                    limits[key] = (value if limits[key] is None
+                                   else max(limits[key], value))
+
+        if outputs:
+            common['output'] = ', '.join(sorted(outputs))
+        for key, value in limits.items():
+            if value is not None:
+                common[key] = value
+        return common
+
+    @io.timeit
+    def get_from_class(
+            self,
+            params,
+            observables,
+            precision=0,
+            squeeze=False,
+            verbose=False,
+            timeit=False):
+        """Compute multiple observables with one shared HiCLASS run.
+
+        ``observables`` is grouped by quantity and spectrum name. For
+        example::
+
+            {
+                'cell': {'TT': {'ell': ell}, 'EE': {'ell': ell}},
+                'pk': {'m': {'k': k, 'z': z}},
+            }
+
+        The returned nested dictionary mirrors this structure.
+
+        Args:
+            params (dict[str, float]): One cosmology in HiFast
+                nomenclature.
+            observables (dict): Non-empty mapping containing any of the
+                ``pk``, ``fk``, and ``cell`` groups. Power and growth entries
+                require ``k`` and ``z``; CMB entries require ``ell``.
+            precision (int | dict[str, float]): CLASS precision preset or
+                explicit overrides shared by every request.
+            squeeze (bool): Apply singleton-dimension removal separately to
+                every returned spectrum.
+            verbose (bool): Enable verbose CLASS output.
+            timeit (bool): Report the total combined evaluation time.
+
+        Returns:
+            dict: Nested results with the same group and spectrum keys as
+            ``observables``.
+        """
+        if not isinstance(params, dict):
+            raise ValueError('params must be one cosmology dictionary')
+        requests = self._parse_class_observables(observables)
+        common_params = self._get_common_class_params(
+            params, precision, requests, verbose=verbose)
+
+        # Populate or upgrade the shared cache before extracting any result.
+        with self._class_cache.use(common_params):
+            pass
+
+        results = {kind: {} for kind in observables}
+        for request in requests:
+            kind = request['kind']
+            name = request['name']
+            coordinates = request['coordinates']
+            if kind == 'cell':
+                value = self.get_cell_from_class(
+                    coordinates['ell'], params, name=name,
+                    precision=precision, squeeze=squeeze, verbose=verbose)
+            elif kind == 'pk':
+                value = self.get_pk_from_class(
+                    coordinates['k'], coordinates['z'], params, name=name,
+                    precision=precision, squeeze=squeeze, verbose=verbose)
+            else:
+                value = self.get_fk_from_class(
+                    coordinates['k'], coordinates['z'], params, name=name,
+                    precision=precision, squeeze=squeeze, verbose=verbose)
+            results[kind][name] = value
+        return results
+
     @io.timeit
     def get_pk_from_class(
             self,

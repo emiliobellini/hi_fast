@@ -172,3 +172,67 @@ def test_hifast_exposes_only_private_cache_management(monkeypatch):
     assert hifast._get_class_cache_info()['computed'] is False
     assert not hasattr(hifast, 'clear_class_cache')
     assert not hasattr(hifast, 'get_class_cache_info')
+
+
+def test_combined_api_computes_cell_and_pk_once(monkeypatch):
+    FakeHiClass.instances = []
+    monkeypatch.setattr(cache_module.hiclassy, 'HiClass', FakeHiClass)
+    cache = HiClassCache()
+    common_args = {
+        'output': 'tCl, pCl, lCl, mPk, dTk',
+        'P_k_max_h/Mpc': 50.0,
+        'l_max_scalars': 3000,
+        'lensing': 'yes',
+    }
+
+    pk = spectra_module.Pk.__new__(spectra_module.Pk)
+    pk.name = 'pk_m'
+    pk.class_args = common_args.copy()
+    pk.class_high_prec = {}
+    pk._class_cache = cache
+
+    cells = {}
+    for cell_name in ('cl_TT_lensed', 'cl_EE_lensed'):
+        cell = spectra_module.Cell.__new__(spectra_module.Cell)
+        cell.name = cell_name
+        cell.class_args = common_args.copy()
+        cell.class_high_prec = {}
+        cell._class_cache = cache
+        cells[cell_name] = cell
+
+    hifast = HiFast.__new__(HiFast)
+    hifast._class_cache = cache
+    hifast._spectra = {'pk_m': pk, **cells}
+    params = {'h': 0.7, 'Omega_m': 0.3}
+
+    # Seed the cache with the same narrow P(k, z) request. CMB metadata has a
+    # much wider baseline P_k_max, which must not become a CMB requirement.
+    hifast.get_pk_from_class([0.1], [0.5], params, name='m')
+    result = hifast.get_from_class(
+        params,
+        observables={
+            'cell': {
+                'TT': {'ell': [2, 10]},
+                'EE': {'ell': [2, 10]},
+            },
+            'pk': {'m': {'k': [0.1], 'z': [0.5]}},
+        })
+
+    assert result['cell']['TT'].shape == (1, 2)
+    assert result['cell']['EE'].shape == (1, 2)
+    assert result['pk']['m'].shape == (1, 1, 1)
+    assert len(FakeHiClass.instances) == 1
+    assert cache.info()['misses'] == 1
+    assert cache.info()['hits'] == 4
+
+
+def test_combined_api_validates_request_structure():
+    hifast = HiFast.__new__(HiFast)
+
+    with np.testing.assert_raises_regex(ValueError, 'non-empty dictionary'):
+        hifast._parse_class_observables({})
+    with np.testing.assert_raises_regex(ValueError, 'Unknown observable'):
+        hifast._parse_class_observables({'background': {'H': {}}})
+    with np.testing.assert_raises_regex(ValueError, 'requires exactly'):
+        hifast._parse_class_observables(
+            {'pk': {'m': {'k': [0.1]}}})

@@ -67,10 +67,11 @@ params = {
 
 k = [0.01, 0.1]  # h/Mpc
 z = [0.0, 1.0]
+ells = [2, 10, 50]
 
 pk = hifast.get_pk(k, z, params, name="m", squeeze=True)
 fk = hifast.get_fk(k, z, params, name="m", squeeze=True)
-cl_tt = hifast.get_cell([2, 10, 50], params, name="TT", squeeze=True)
+cl_tt = hifast.get_cell(ells, params, name="TT", squeeze=True)
 
 print(pk.shape, fk.shape, cl_tt.shape)
 # (2, 2) (2, 2) (3,)
@@ -234,6 +235,33 @@ and its computed outputs, wavenumber/redshift ranges, and multipole range
 cover the new observable. A request requiring wider coverage upgrades the
 calculation; changing cosmology or precision replaces it. This is automatic
 and does not change the public API.
+
+When several observables are known in advance, `get_from_class` combines their
+requirements and computes all of them with one HiCLASS run:
+
+```python
+results = hifast.get_from_class(
+    params,
+    observables={
+        "cell": {
+            "TT": {"ell": [2, 10, 50]},
+            "EE": {"ell": [2, 10, 50]},
+        },
+        "pk": {
+            "m": {"k": [0.01, 0.1], "z": [0.0, 1.0]},
+        },
+    },
+    precision=0,
+)
+
+cl_tt = results["cell"]["TT"]
+cl_ee = results["cell"]["EE"]
+pk_m = results["pk"]["m"]
+```
+
+The `pk`, `fk`, and `cell` groups accept the same short spectrum names as the
+individual methods. The nested result dictionary mirrors the request. Set
+`squeeze=True` to apply the usual singleton-dimension removal to each result.
 
 Only linear power spectra and growth rates are currently supported;
 `nonlinear=True` raises an exception.
