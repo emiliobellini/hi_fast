@@ -25,12 +25,8 @@ class Spectrum(object):
         """
         # Name of the spectrum (str)
         self.name = kwargs['name']
-        self._is_pk = None
-        self._is_cl = None
         # Parameters names needed by the emulator (list of str)
         self.x_names = kwargs['x_names']
-        # Placeholder for values needed by the emulator (list of floats)
-        self.x_values = [None for _ in self.x_names]
         # Parameter ranges used by the current validation path. For the
         # shipped bundles this matches the widest stored region.
         self.x_ranges = kwargs['x_ranges']
@@ -90,8 +86,6 @@ class Spectrum(object):
         self.z_max = None
         self.ell_min = None
         self.ell_max = None
-
-        pass
 
     @contextmanager
     def _use_class(self, params, requirements=None):
@@ -426,10 +420,6 @@ class Pk(Spectrum):
     def __init__(self, **kwargs):
         Spectrum.__init__(self, **kwargs)
 
-        # Spectrum type flags
-        self._is_pk = True
-        self._is_cl = False
-
         # Input parameters (primordial power spectrum)
         self.input_params_names = [nm for nm in self.x_names if nm != 'z_pk']
         self.input_params_names += ['ln_A_s_1e10', 'n_s']
@@ -459,8 +449,6 @@ class Pk(Spectrum):
             'z': None,
             'ref_spectrum': None,
         }
-
-        pass
 
     def _store_reference_spectrum(self, k, z):
         """Cache the reference spectrum on a requested k-z grid."""
@@ -863,8 +851,6 @@ class Fk(Pk):
         # Input parameters
         self.input_params_names = [nm for nm in self.x_names if nm != 'z_pk']
 
-        pass
-
     def get(self, k, z, params, nonlinear=False):
         """Evaluate the emulator growth rate ``f(k, z)``.
 
@@ -980,10 +966,6 @@ class Cell(Spectrum):
     def __init__(self, **kwargs):
         Spectrum.__init__(self, **kwargs)
 
-        # Spectrum type flags
-        self._is_pk = False
-        self._is_cl = True
-
         # Input parameters (primordial power spectrum)
         self.input_params_names = self.x_names.copy()
 
@@ -1002,8 +984,6 @@ class Cell(Spectrum):
             'ell_indices': None,
             'ref_spectrum': None,
         }
-
-        pass
 
     def _check_ell_values(self, ell):
         """Ensure multipoles fall within the emulator range.

@@ -28,8 +28,7 @@ class PCA(object):
             KeyError: If any required PCA attribute is missing in
                 ``kwargs``.
         """
-        self.n_components = kwargs['n_components_']
-        self.pca = skl_dec.PCA(n_components=self.n_components)
+        self.pca = skl_dec.PCA(n_components=kwargs['n_components_'])
         # Store PCA attributes
         self.pca.n_components_ = kwargs['n_components_']
         self.pca.components_ = kwargs['components_']

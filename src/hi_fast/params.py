@@ -51,8 +51,6 @@ class Params(object):
                     self._derived[name].append(der)
             self._derived[name].sort()
 
-        pass
-
     def _conversion_rules(self):
         """Return dictionaries describing parameter conversions.
 

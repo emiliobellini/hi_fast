@@ -79,8 +79,6 @@ class HiFast(object):
         self._params = {spec.name: Params(spec, self._spectra)
                         for spec in self._spectra.values()}
 
-        pass
-
     def _clear_class_cache(self):
         """Release the private shared HiCLASS computation."""
         self._class_cache.clear()
