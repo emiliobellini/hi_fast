@@ -891,22 +891,8 @@ class Fk(Pk):
         k = self._to_numpy_array(k)
         z = self._to_numpy_array(z)
 
-        # Get additional Class arguments needed to run smoothly
-        class_args = {n: self.class_args[n] for n in self.class_args
-                      if n not in self.class_high_prec}
-        class_args['output'] = 'tCl, pCl, lCl, mPk, dTk'
-        class_args['P_k_max_h/Mpc'] = k.max()
-        class_args['z_max_pk'] = max(z.max(), 0.1)
-
-        # Prepare parameters list
-        params = self._get_input_params_class(
-            params, precision, class_args, verbose=verbose)
-
-        requirements = {
-            'output': 'mPk, dTk',
-            'P_k_max_h/Mpc': k.max(),
-            'z_max_pk': max(z.max(), 0.1),
-        }
+        params, requirements = self._get_class_request(
+            k, z, params, precision=precision, verbose=verbose)
         with self._use_class(params, requirements=requirements) as cosmo:
             # Get correct spectrum
             if self.name.endswith('_cb'):

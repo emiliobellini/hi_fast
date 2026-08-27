@@ -634,6 +634,24 @@ def test_fk_and_class_have_matching_shapes(
 
 
 @pytest.mark.parametrize('squeeze, expected_shape', [
+    (False, (1, 2, 3)),
+    (True, (2, 3)),
+])
+def test_class_kz_formatter_preserves_public_axis_order(
+        squeeze, expected_shape):
+    native = np.arange(6).reshape(3, 2)
+
+    result = HiFast._format_class_kz_result(
+        native, k=[0.1, 0.2, 0.3], z=[0.0, 1.0], squeeze=squeeze)
+    expected = native.T[np.newaxis, :, :]
+    if squeeze:
+        expected = expected.squeeze()
+
+    assert result.shape == expected_shape
+    np.testing.assert_array_equal(result, expected)
+
+
+@pytest.mark.parametrize('squeeze, expected_shape', [
     (False, (1, 3)),
     (True, (3,)),
 ])

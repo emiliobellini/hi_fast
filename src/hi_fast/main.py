@@ -369,6 +369,14 @@ class HiFast(object):
                 n_modes, len(sample_coordinates)).T
         return out
 
+    @staticmethod
+    def _format_class_kz_result(values, k, z, squeeze=False):
+        """Convert native CLASS k-z orientation to the public output shape."""
+        n_k = np.atleast_1d(k).size
+        n_z = np.atleast_1d(z).size
+        result = np.asarray(values).reshape(n_k, n_z).T[np.newaxis, :, :]
+        return result.squeeze() if squeeze else result
+
     def get_params_names(self, spectrum):
         """Return the ordered parameter names expected by array input.
 
@@ -1159,15 +1167,7 @@ class HiFast(object):
         # Get output
         out = spectrum.get_from_class(
             k, z, params, precision=precision, verbose=verbose)
-        n_k = np.atleast_1d(k).size
-        n_z = np.atleast_1d(z).size
-        out = np.asarray(out).reshape(n_k, n_z).T[np.newaxis, :, :]
-
-        # Squeeze dimensions
-        if squeeze:
-            return out.squeeze()
-
-        return out
+        return self._format_class_kz_result(out, k, z, squeeze=squeeze)
 
     @io.timeit
     def get_fk_from_class(
@@ -1224,15 +1224,7 @@ class HiFast(object):
             spectrum = self._spectra['pk_{}'.format(name)]
             out = spectrum.get_fk_from_class(
                 k, z, params, precision=precision, verbose=verbose)
-        n_k = np.atleast_1d(k).size
-        n_z = np.atleast_1d(z).size
-        out = np.asarray(out).reshape(n_k, n_z).T[np.newaxis, :, :]
-
-        # Squeeze dimensions
-        if squeeze:
-            return out.squeeze()
-
-        return out
+        return self._format_class_kz_result(out, k, z, squeeze=squeeze)
 
     @io.timeit
     def get_cell_from_class(
