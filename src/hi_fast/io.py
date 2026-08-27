@@ -6,6 +6,7 @@
 
 """
 
+import json
 import joblib
 import os
 import re
@@ -15,6 +16,25 @@ from ._tensorflow_config import keras
 from tabulate import tabulate
 from astropy.io import fits
 from collections import OrderedDict
+
+
+def _load_validation_report(name, root='emu'):
+    """Load optional bundle validation statistics."""
+    if name is None:
+        return None
+    path = os.path.join(os.path.abspath(root), name, 'validation.json')
+    if not os.path.isfile(path):
+        return None
+    with open(path, encoding='utf-8') as file:
+        report = json.load(file)
+    if report.get('schema_version') != 1:
+        raise ValueError(
+            'Unsupported validation report schema in {}'.format(path))
+    if report.get('model') != name:
+        raise ValueError(
+            'Validation report model {!r} does not match {!r}'.format(
+                report.get('model'), name))
+    return report
 
 
 # ------------------- Folder -------------------------------------------------#
@@ -608,7 +628,7 @@ def _spectrum_public_call(spec_name):
     return spec_name
 
 
-def _build_info_metadata(spectra, params, name=None):
+def _build_info_metadata(spectra, params, name=None, validation=None):
     """Build structured metadata shared by terminal and Markdown renderers."""
     if name is None:
         spec_names = sorted(spectra)
@@ -616,6 +636,13 @@ def _build_info_metadata(spectra, params, name=None):
         spec_names = [name]
 
     metadata = []
+    validation_results = {} if validation is None else {
+        spec_name: [
+            result for result in validation.get('results', [])
+            if result.get('observable') == spec_name
+        ]
+        for spec_name in spec_names
+    }
     for spec_name in spec_names:
         spec = spectra[spec_name]
         param = params[spec_name]
@@ -643,6 +670,16 @@ def _build_info_metadata(spectra, params, name=None):
             },
             'k_range': None,
             'ell_range': None,
+            'validation': validation_results.get(spec_name, []),
+            'validation_thresholds': (
+                [] if validation is None
+                else validation.get('thresholds_percent', [])),
+            'validation_split': (
+                None if validation is None
+                else validation.get('splits', {}).get(spec_name)),
+            'validation_region_membership': (
+                None if validation is None
+                else validation.get('region_membership')),
         }
         if spec.k_min is not None and spec.k_max is not None:
             entry['k_range'] = [spec.k_min, spec.k_max]
@@ -748,6 +785,104 @@ def _markdown_table(headers, rows):
     return '\n'.join(lines)
 
 
+def _validation_rows(entry, bounds=None):
+    """Return sorted held-out validation records for one observable."""
+    region_order = {region: index for index, region in enumerate(_INFO_BOUNDS)}
+    method_order = {'direct': 0, 'from_pk': 1}
+    results = [
+        result for result in entry['validation']
+        if bounds is None or result.get('region') == bounds
+    ]
+    return sorted(
+        results,
+        key=lambda result: (
+            region_order.get(result.get('region'), len(region_order)),
+            method_order.get(result.get('method'), len(method_order))))
+
+
+def _validation_threshold_headers(entry, metric):
+    """Format relative or absolute RMS threshold headings."""
+    if metric == 'relative_rms':
+        return ['≤{}%'.format(value)
+                for value in entry['validation_thresholds']]
+    return ['≤{:g}'.format(value / 100.0)
+            for value in entry['validation_thresholds']]
+
+
+def _validation_table(entry, bounds=None):
+    """Return headers and rows for one validation report table."""
+    results = _validation_rows(entry, bounds=bounds)
+    if not results:
+        return None, []
+    metric = results[0]['metric']
+    headers = ['Method', 'Region', 'Test models']
+    headers += _validation_threshold_headers(entry, metric)
+    rows = []
+    for result in results:
+        percentages = result['percent_within']
+        rows.append([
+            result['method'],
+            result['region'],
+            '{:,}'.format(result['samples_valid']),
+        ] + [
+            ('{:.3f}%'.format(percentages[str(threshold)])
+             if percentages[str(threshold)] is not None else 'N/A')
+            for threshold in entry['validation_thresholds']
+        ])
+    return headers, rows
+
+
+def _validation_metric_description(metric):
+    """Return a human-readable per-sample RMS metric description."""
+    if metric == 'relative_rms':
+        return 'relative RMS error across output modes'
+    return 'absolute RMS error across output modes'
+
+
+def _append_validation_markdown(lines, metadata, bounds):
+    """Append held-out validation tables when a report is available."""
+    entries = [entry for entry in metadata if _validation_rows(entry, bounds)]
+    if not entries:
+        return
+    lines.extend([
+        '## Held-out Test Accuracy',
+        '',
+        ('The original global train/test split is reconstructed from the '
+         'stored training fraction, random seed, finite-row filtering, and '
+         'dataset order. Region results are cumulative by source dataset: '
+         '`std` combines the `thin` and `std` test rows, while `ext` combines '
+         'all three source regions.'),
+        '',
+    ])
+    for entry in entries:
+        results = _validation_rows(entry, bounds)
+        metric = results[0]['metric']
+        headers, rows = _validation_table(entry, bounds=bounds)
+        lines.extend([
+            '### {}'.format(entry['name']),
+            '',
+            'Metric: {}.'.format(_validation_metric_description(metric)),
+            '',
+            _markdown_table(headers, rows),
+            '',
+        ])
+
+
+def _print_validation(metadata, bounds):
+    """Print held-out validation tables when a report is available."""
+    entries = [entry for entry in metadata if _validation_rows(entry, bounds)]
+    if not entries:
+        return
+    info('Held-out test accuracy (cumulative source regions):')
+    for entry in entries:
+        results = _validation_rows(entry, bounds)
+        metric = results[0]['metric']
+        print_level(1, '{} — {}'.format(
+            entry['name'], _validation_metric_description(metric)))
+        headers, rows = _validation_table(entry, bounds=bounds)
+        print(tabulate(rows, headers=headers, tablefmt='grid'))
+
+
 def _format_info_markdown(metadata, name=None, bounds=None):
     """Render emulator metadata as Markdown."""
     lines = []
@@ -792,6 +927,8 @@ def _format_info_markdown(metadata, name=None, bounds=None):
                  'Grid / redshift domain'],
                 rows))
             lines.append('')
+
+    _append_validation_markdown(lines, metadata, bounds)
 
     lines.append('## Detailed Trust Regions')
     for entry in metadata:
@@ -871,11 +1008,13 @@ def _print_detail(metadata, bounds):
         tab = _info_detail_rows(entry, bounds, color=True)
         print(tabulate(tab, headers=headers, tablefmt='grid'))
 
+    _print_validation(metadata, bounds)
     return
 
 
 def _print_info(
-        spectra, params, name=None, bounds=None, markdown=False, output=None):
+        spectra, params, name=None, bounds=None, markdown=False, output=None,
+        validation=None):
     """Print summary or detailed info for spectrum emulators.
     Args:
         spectra (dict): Mapping from spectrum names to Spectrum objects.
@@ -889,6 +1028,7 @@ def _print_info(
             tables.
         output (str | None): Optional file path used only with
             ``markdown=True``. When omitted, Markdown is printed to stdout.
+        validation (dict | None): Optional held-out validation report.
     """
     if bounds is not None and bounds not in _INFO_BOUNDS:
         raise ValueError('bounds must be one of {}; got {}'.format(
@@ -896,7 +1036,8 @@ def _print_info(
     if output is not None and markdown is False:
         raise ValueError('output can only be used with markdown=True')
 
-    metadata = _build_info_metadata(spectra, params, name=name)
+    metadata = _build_info_metadata(
+        spectra, params, name=name, validation=validation)
     if markdown:
         content = _format_info_markdown(
             metadata, name=name, bounds=bounds)

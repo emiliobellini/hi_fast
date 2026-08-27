@@ -28,6 +28,11 @@ class HiFast(object):
         # Load spectra emulators
         self._spectra = self._load(
             name, root=root, timeit=timeit, verbose=verbose)
+        try:
+            self._validation = io._load_validation_report(name, root=root)
+        except (OSError, ValueError) as error:
+            io.warning('Ignoring invalid validation report: {}'.format(error))
+            self._validation = None
         # Init parameters handlers
         self._params = {spec.name: Params(spec, self._spectra)
                         for spec in self._spectra.values()}
@@ -914,4 +919,5 @@ class HiFast(object):
             name=name,
             bounds=bounds,
             markdown=markdown,
-            output=output)
+            output=output,
+            validation=getattr(self, '_validation', None))

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Generate README files for HiFast emulator bundles."""
+"""Generate bundle READMEs from emulator and optional validation metadata."""
 
 import argparse
 from pathlib import Path

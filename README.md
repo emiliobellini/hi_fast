@@ -136,6 +136,14 @@ HiCLASS calculation per affected cosmology. The requested output order and
 shape do not change. `class_precision` has the same meaning as the `precision`
 argument of the explicit `get_*_from_class` methods.
 
+When a bundle contains `validation.json`, `print_info()` and its generated
+README also show held-out test accuracy. The original global train/test split
+is reconstructed from the training fraction, random seed, finite-row filter,
+and dataset ordering stored in each emulator joblib. Results are cumulative
+by source region: `thin` contains its held-out rows, `std` combines the thin
+and standard held-out rows, and `ext` combines all three source datasets.
+Only held-out rows are reported; training rows are excluded.
+
 For CMB spectra, the public `name` argument is the short selector (`TT`, `TE`,
 `EE`, `BB`, `Tp`, or `pp`). Complete names such as `cl_TT_lensed` identify
 emulator bundles and FITS entries; they are also the names accepted by
@@ -235,7 +243,9 @@ printed before the exception is propagated.
 
 - Core source lives under `src/hi_fast/`.
 - Emulator metadata and weights reside in `emu/`.
-- Scientific validation and plotting scripts are located directly in `tests/`.
+- Scientific validation scripts are located directly in `tests/`.
+- The held-out accuracy and histogram workflow is
+  `scripts/validate_emulators.py`.
 - Performance scripts are located in `benchmarks/`.
 
 Before submitting changes, run the automated tests and ensure docstrings stay
@@ -256,9 +266,26 @@ python -m pytest
 ```
 
 The pytest configuration collects only `tests/unit`. The files directly under
-`tests/` are scientific validation and plotting scripts. Performance scripts
-live under `benchmarks/`; run them explicitly when their FITS data and emulator
-assets are available.
+`tests/` are scientific validation scripts. Performance scripts live under
+`benchmarks/`; run them explicitly when their FITS data and emulator assets
+are available.
+
+Generate a memory-bounded held-out validation report with:
+
+```bash
+python scripts/validate_emulators.py \
+    ../../Data/emu_like/lcdm/sample \
+    --model lcdm \
+    --batch-size 512
+```
+
+The script first reconstructs the global test indices using only per-file
+finite-row counts. It then loads thin, std, and ext sequentially, retaining
+only the small RMS arrays needed for cumulative statistics. By default it
+writes `emu/<model>/validation.json` and plots below
+`validation_plots/<model>/`. Pass `--no-plots` for statistics only. Once the
+report exists, regenerate bundle READMEs with
+`scripts/generate_emulator_readmes.py`.
 
 Useful commands include:
 

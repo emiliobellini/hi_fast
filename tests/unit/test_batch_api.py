@@ -1,4 +1,6 @@
 """Unit tests for the public batch-first HiFast API."""
+import json
+
 import numpy as np
 import pytest
 
@@ -406,6 +408,90 @@ def test_print_info_can_render_markdown(capsys, tmp_path):
     assert output_path.read_text() == written
     assert '# HiFast Emulator: pk_m' in written
     assert '| h | 0.6 | 0.8 | `H0` |' in written
+
+
+def test_print_info_includes_held_out_validation(capsys):
+    class SimpleSpectrum:
+        name = 'pk_m'
+        k_min = 0.001
+        k_max = 50.0
+        z_min = 0.0
+        z_max = 10.0
+        ell_min = None
+        ell_max = None
+
+    class SimpleParams:
+        _required = ['h']
+        _ranges_by_region = {
+            'thin': {'z_pk': [0.0, 2.0], 'h': [0.65, 0.73]},
+            'std': {'z_pk': [0.0, 3.0], 'h': [0.6, 0.8]},
+            'ext': {'z_pk': [0.0, 10.0], 'h': [0.5, 0.9]},
+        }
+        _derived = {'h': ['h']}
+
+    validation = {
+        'schema_version': 1,
+        'model': 'lcdm',
+        'thresholds_percent': [0.01, 0.05, 0.1, 1.0],
+        'region_membership': 'cumulative_source_datasets',
+        'splits': {},
+        'results': [{
+            'observable': 'pk_m',
+            'method': 'direct',
+            'region': 'std',
+            'metric': 'relative_rms',
+            'samples_valid': 20000,
+            'percent_within': {
+                '0.01': 98.5,
+                '0.05': 99.5,
+                '0.1': 99.9,
+                '1.0': 100.0,
+            },
+        }],
+    }
+    spectra = {'pk_m': SimpleSpectrum()}
+    params = {'pk_m': SimpleParams()}
+
+    content = io_module._print_info(
+        spectra, params, markdown=True, validation=validation)
+    assert '## Held-out Test Accuracy' in content
+    assert '| direct | std | 20,000 | 98.500% |' in content
+    assert 'relative RMS error across output modes' in content
+
+    capsys.readouterr()
+    io_module._print_info(spectra, params, validation=validation)
+    output = capsys.readouterr().out
+    assert 'Held-out test accuracy' not in output
+
+    io_module._print_info(
+        spectra, params, name='pk_m', bounds='std',
+        validation=validation)
+    output = capsys.readouterr().out
+    assert 'Held-out test accuracy' in output
+    assert '20,000' in output
+
+
+def test_optional_validation_report_loading(tmp_path):
+    assert io_module._load_validation_report(
+        'lcdm', root=str(tmp_path)) is None
+
+    bundle = tmp_path / 'lcdm'
+    bundle.mkdir()
+    report = {
+        'schema_version': 1,
+        'model': 'lcdm',
+        'thresholds_percent': [0.01],
+        'results': [],
+    }
+    (bundle / 'validation.json').write_text(json.dumps(report))
+
+    assert io_module._load_validation_report(
+        'lcdm', root=str(tmp_path)) == report
+
+    report['model'] = 'other'
+    (bundle / 'validation.json').write_text(json.dumps(report))
+    with pytest.raises(ValueError, match='does not match'):
+        io_module._load_validation_report('lcdm', root=str(tmp_path))
 
 
 def test_print_info_rejects_unknown_trust_region():
