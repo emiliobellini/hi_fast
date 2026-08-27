@@ -327,6 +327,25 @@ def test_background_validates_quantities_and_redshift():
         hifast.get_background({}, quantities='H')
 
 
+def test_background_registry_is_the_metadata_source():
+    entries = HiClassService.background_info()
+
+    assert [entry['name'] for entry in entries] == list(
+        HiClassService.BACKGROUND_QUANTITIES)
+    assert next(entry for entry in entries if entry['name'] == 'H') == {
+        'name': 'H',
+        'hiclassy': 'Hubble(z)',
+        'input': 'z',
+        'units': 'km/s/Mpc',
+    }
+    assert next(entry for entry in entries if entry['name'] == 'age') == {
+        'name': 'age',
+        'hiclassy': 'age',
+        'input': '—',
+        'units': 'Gyr',
+    }
+
+
 def test_background_table_returns_native_columns(monkeypatch):
     FakeHiClass.instances = []
     monkeypatch.setattr(cache_module.hiclassy, 'HiClass', FakeHiClass)

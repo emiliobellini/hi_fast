@@ -13,6 +13,8 @@ import sklearn.preprocessing as skl_pre
 class Scaler(object):
     """Base class for all scalers used by the emulator pipeline."""
 
+    _REGISTRY = {}
+
     def __init__(self, **kwargs):
         """Record the scaler name/type from serialized metadata.
 
@@ -57,24 +59,15 @@ class Scaler(object):
         Raises:
             ValueError: If ``type`` does not match any known scaler.
         """
-        if kwargs['type'] == 'None' or kwargs['type'] is None:
-            return NoneScaler(**kwargs)
-        elif kwargs['type'] == 'StandardScaler':
-            return StandardScaler(**kwargs)
-        elif kwargs['type'] == 'LogStandardScaler':
-            return LogStandardScaler(**kwargs)
-        elif kwargs['type'] == 'MinusLogStandardScaler':
-            return MinusLogStandardScaler(**kwargs)
-        elif kwargs['type'] == 'MinMaxScaler':
-            return MinMaxScaler(**kwargs)
-        elif kwargs['type'] == 'MinMaxCommonScaler':
-            return MinMaxCommonScaler(**kwargs)
-        elif kwargs['type'] == 'MinMaxPlus1Scaler':
-            return MinMaxPlus1Scaler(**kwargs)
-        elif kwargs['type'] == 'ExpMinMaxScaler':
-            return ExpMinMaxScaler(**kwargs)
-        else:
-            raise ValueError('Scaler not recognized!')
+        scaler_type = kwargs['type']
+        try:
+            scaler_class = Scaler._REGISTRY[scaler_type]
+        except KeyError as error:
+            raise ValueError(
+                'Scaler {!r} not recognized. Choose from {}'
+                .format(scaler_type, sorted(
+                    str(name) for name in Scaler._REGISTRY))) from error
+        return scaler_class(**kwargs)
 
     def transform(self, x):
         """Placeholder to be overridden by subclasses."""
@@ -321,3 +314,18 @@ class ExpMinMaxScaler(Scaler):
         x = np.log(x_scaled)
         x = self.skl_scaler.inverse_transform(x)
         return x
+
+
+# Serialized scaler name -> implementation. Keeping this in one registry
+# makes support for new scaler types explicit and avoids factory conditionals.
+Scaler._REGISTRY = {
+    None: NoneScaler,
+    'None': NoneScaler,
+    'StandardScaler': StandardScaler,
+    'LogStandardScaler': LogStandardScaler,
+    'MinusLogStandardScaler': MinusLogStandardScaler,
+    'MinMaxScaler': MinMaxScaler,
+    'MinMaxCommonScaler': MinMaxCommonScaler,
+    'MinMaxPlus1Scaler': MinMaxPlus1Scaler,
+    'ExpMinMaxScaler': ExpMinMaxScaler,
+}

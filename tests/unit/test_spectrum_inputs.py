@@ -4,6 +4,20 @@ import numpy as np
 import pytest
 
 from hi_fast.spectra import Cell, Fk, GridSpectrum, Pk, Spectrum
+from hi_fast.scalers import NoneScaler, Scaler
+
+
+def test_scaler_registry_drives_serialized_type_selection():
+    assert Scaler.choose_one(type='None').__class__ is NoneScaler
+    assert Scaler.choose_one(type=None).__class__ is NoneScaler
+    assert set(Scaler._REGISTRY) == {
+        None, 'None', 'StandardScaler', 'LogStandardScaler',
+        'MinusLogStandardScaler', 'MinMaxScaler', 'MinMaxCommonScaler',
+        'MinMaxPlus1Scaler', 'ExpMinMaxScaler',
+    }
+
+    with pytest.raises(ValueError, match="'unknown' not recognized"):
+        Scaler.choose_one(type='unknown')
 
 
 def test_grid_spectrum_hierarchy_separates_pk_and_fk_interfaces():

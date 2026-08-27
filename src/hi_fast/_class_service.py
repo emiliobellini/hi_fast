@@ -8,18 +8,46 @@ from ._class_cache import HiClassCache
 class HiClassService:
     """Coordinate HiCLASS requests for a collection of spectra."""
 
-    BACKGROUND_AT_Z = {
-        'H': 'Hubble',
-        'comoving_distance': 'comoving_distance',
-        'angular_diameter_distance': 'angular_distance',
-        'luminosity_distance': 'luminosity_distance',
-        'growth_factor': 'scale_independent_growth_factor',
-        'growth_rate': 'scale_independent_growth_factor_f',
+    BACKGROUND_QUANTITIES = {
+        'H': {
+            'member': 'Hubble', 'at_z': True, 'units': 'km/s/Mpc'},
+        'comoving_distance': {
+            'member': 'comoving_distance', 'at_z': True, 'units': 'Mpc'},
+        'angular_diameter_distance': {
+            'member': 'angular_distance', 'at_z': True, 'units': 'Mpc'},
+        'luminosity_distance': {
+            'member': 'luminosity_distance', 'at_z': True, 'units': 'Mpc'},
+        'growth_factor': {
+            'member': 'scale_independent_growth_factor',
+            'at_z': True,
+            'units': 'dimensionless',
+        },
+        'growth_rate': {
+            'member': 'scale_independent_growth_factor_f',
+            'at_z': True,
+            'units': 'dimensionless',
+        },
+        'age': {'member': 'age', 'at_z': False, 'units': 'Gyr'},
+        'Omega_m': {
+            'member': 'Omega_m', 'at_z': False, 'units': 'dimensionless'},
+        'Omega_b': {
+            'member': 'Omega_b', 'at_z': False, 'units': 'dimensionless'},
+        'Omega_cdm': {
+            'member': 'Omega_cdm', 'at_z': False,
+            'units': 'dimensionless'},
+        'Omega_k': {
+            'member': 'Omega_k', 'at_z': False, 'units': 'dimensionless'},
+        'Omega_r': {
+            'member': 'Omega_r', 'at_z': False, 'units': 'dimensionless'},
+        'Omega_g': {
+            'member': 'Omega_g', 'at_z': False, 'units': 'dimensionless'},
+        'Omega_nu': {
+            'member': 'Omega_nu', 'at_z': False,
+            'units': 'dimensionless'},
+        'Omega_Lambda': {
+            'member': 'Omega_Lambda', 'at_z': False,
+            'units': 'dimensionless'},
     }
-    BACKGROUND_SCALARS = (
-        'age', 'Omega_m', 'Omega_b', 'Omega_cdm', 'Omega_k', 'Omega_r',
-        'Omega_g', 'Omega_nu', 'Omega_Lambda',
-    )
 
     def __init__(self, spectra, cache=None):
         self.spectra = spectra
@@ -32,6 +60,17 @@ class HiClassService:
     def info(self):
         """Return diagnostics for the shared HiCLASS cache."""
         return self.cache.info()
+
+    @classmethod
+    def background_info(cls):
+        """Return public background nomenclature from the registry."""
+        return [{
+            'name': name,
+            'hiclassy': '{}(z)'.format(entry['member'])
+            if entry['at_z'] else entry['member'],
+            'input': 'z' if entry['at_z'] else '—',
+            'units': entry['units'],
+        } for name, entry in cls.BACKGROUND_QUANTITIES.items()]
 
     def get_cell_spectrum(self, name):
         """Resolve a public CMB selector to an available spectrum."""
@@ -112,14 +151,15 @@ class HiClassService:
     def _extract_background(cls, cosmo, z, quantities, squeeze):
         result = {}
         for quantity in quantities:
-            if quantity in cls.BACKGROUND_AT_Z:
-                value = np.asarray(
-                    getattr(cosmo, cls.BACKGROUND_AT_Z[quantity])(z))
+            entry = cls.BACKGROUND_QUANTITIES[quantity]
+            member = getattr(cosmo, entry['member'])
+            if entry['at_z']:
+                value = np.asarray(member(z))
                 if quantity == 'H':
                     value = value * 299792.458
                 result[quantity] = value.squeeze() if squeeze else value
             else:
-                result[quantity] = getattr(cosmo, quantity)
+                result[quantity] = member
         return result
 
     def get_background(

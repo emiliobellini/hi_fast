@@ -12,28 +12,6 @@ class HiFast(object):
 
     _TRUSTED_REGIONS = ('thin', 'std', 'ext')
     _OUT_OF_BOUNDS_POLICIES = ('raise', 'class')
-    # Public HiFast name -> vectorized hiclassy method accepting only z.
-    _BACKGROUND_AT_Z = HiClassService.BACKGROUND_AT_Z
-    # Public names that are scalar properties on a computed HiClass object.
-    _BACKGROUND_SCALARS = HiClassService.BACKGROUND_SCALARS
-    _BACKGROUND_UNITS = {
-        'H': 'km/s/Mpc',
-        'comoving_distance': 'Mpc',
-        'angular_diameter_distance': 'Mpc',
-        'luminosity_distance': 'Mpc',
-        'growth_factor': 'dimensionless',
-        'growth_rate': 'dimensionless',
-        'age': 'Gyr',
-        'Omega_m': 'dimensionless',
-        'Omega_b': 'dimensionless',
-        'Omega_cdm': 'dimensionless',
-        'Omega_k': 'dimensionless',
-        'Omega_r': 'dimensionless',
-        'Omega_g': 'dimensionless',
-        'Omega_nu': 'dimensionless',
-        'Omega_Lambda': 'dimensionless',
-    }
-
     def __init__(self, name, root='emu', timeit=False, verbose=False):
         """Instantiate the hi_fast interface and preload all requested
         emulators.
@@ -116,8 +94,8 @@ class HiFast(object):
         """
         if not isinstance(params, dict):
             raise ValueError('params must be one cosmology dictionary')
-        available = (tuple(self._BACKGROUND_AT_Z)
-                     + self._BACKGROUND_SCALARS)
+        registry = HiClassService.BACKGROUND_QUANTITIES
+        available = tuple(registry)
         if quantities is None:
             quantities = available
         elif isinstance(quantities, str):
@@ -131,7 +109,7 @@ class HiFast(object):
             raise ValueError(
                 'Unknown background quantities: {}. Choose from {}'
                 .format(unknown, list(available)))
-        needs_z = any(name in self._BACKGROUND_AT_Z for name in quantities)
+        needs_z = any(registry[name]['at_z'] for name in quantities)
         if needs_z and z is None:
             raise ValueError(
                 'z is required for redshift-dependent background quantities')
@@ -171,25 +149,10 @@ class HiFast(object):
         return self._get_class_service().get_background_table(
             params, precision=precision, verbose=verbose)
 
-    @classmethod
-    def _background_info(cls):
+    @staticmethod
+    def _background_info():
         """Return public-to-HiCLASS background nomenclature metadata."""
-        rows = []
-        for name, member in cls._BACKGROUND_AT_Z.items():
-            rows.append({
-                'name': name,
-                'hiclassy': '{}(z)'.format(member),
-                'input': 'z',
-                'units': cls._BACKGROUND_UNITS[name],
-            })
-        for name in cls._BACKGROUND_SCALARS:
-            rows.append({
-                'name': name,
-                'hiclassy': name,
-                'input': '—',
-                'units': cls._BACKGROUND_UNITS[name],
-            })
-        return rows
+        return HiClassService.background_info()
 
     @staticmethod
     def _batch_ranges(length, batch_size):
