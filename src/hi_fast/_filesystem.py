@@ -506,8 +506,8 @@ class EmuFile(object):
 
     def _exists_or_error(self):
         """Raise ``IOError`` if the emulator file is absent."""
-        if not os.path.isdir(self.path):
-            raise IOError('Folder {} does not exist!'.format(self.path))
+        if not os.path.isfile(self.path):
+            raise IOError('File {} does not exist!'.format(self.path))
         return
 
     def _get_path(self, fname, root):
@@ -538,7 +538,7 @@ class EmuFile(object):
             pass
         elif isinstance(root, str):
             path = os.path.join(root, path)
-        elif isinstance(fname, Folder):
+        elif isinstance(root, Folder):
             path = os.path.join(root.path, path)
         else:
             raise ValueError(

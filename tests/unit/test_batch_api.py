@@ -751,6 +751,23 @@ def test_paired_mode_rejects_mismatched_lengths(hifast, method, kwargs):
             paired=True, **kwargs)
 
 
+def test_paired_mode_preserves_order_with_mixed_class_fallback(hifast):
+    k = np.array([0.1, 0.2])
+    z = np.array([0.25, 0.5, 1.5])
+    params = [
+        {'a': 1.0, 'b': 2.0},
+        {'a': 20.0, 'b': 2.0},
+        {'a': 3.0, 'b': 4.0},
+    ]
+    result = hifast.get_pk(
+        k, z, params, name='m', paired=True, trusted_region='thin',
+        on_out_of_bounds='class', batch_size=1)
+
+    np.testing.assert_allclose(result[0], 1.0 + 4.0 + 0.25 + k)
+    np.testing.assert_allclose(result[1], 100.0 + 0.5 + k)
+    np.testing.assert_allclose(result[2], 100.0 + 1.5 + k)
+
+
 def test_unknown_spectrum_name_is_informative(hifast):
     with pytest.raises(ValueError, match='not available'):
         hifast.get_params_names('pk_unknown')

@@ -104,6 +104,34 @@ def test_reference_grid_caches_do_not_alias_caller_arrays():
     np.testing.assert_array_equal(cell.stored['ell'], [10, 2])
 
 
+def test_power_spectrum_numerical_helpers():
+    pk = Pk.__new__(Pk)
+    k = np.array([0.05, 0.1, 0.2])
+    primordial = pk._get_primordial_pk(
+        np.log(2.1e-9 * 1e10), 1.0, 0.05, k)
+    np.testing.assert_allclose(primordial, 2.1e-9)
+
+    dense_k = np.geomspace(1e-4, 1e2, 20000)
+    radius = 8.0
+    window = (3.0 * (np.sin(dense_k * radius)
+              - dense_k * radius * np.cos(dense_k * radius))
+              / (dense_k * radius)**3)
+    target_sigma = 0.8
+    normalization = target_sigma**2 * 2.0 * np.pi**2 / np.trapezoid(
+        dense_k**2 * window**2, x=dense_k)
+    assert pk._sigma_R_integral(
+        dense_k, np.full_like(dense_k, normalization), radius
+    ) == pytest.approx(target_sigma)
+
+
+def test_grid_emulator_input_follows_serialized_parameter_order():
+    spectrum = GridSpectrum.__new__(GridSpectrum)
+    spectrum.x_names = ['Omega_m', 'z_pk', 'h']
+    result = spectrum._get_values_emu(
+        {'Omega_m': 0.3, 'h': 0.7}, z_pk=1.5)
+    np.testing.assert_array_equal(result, [0.3, 1.5, 0.7])
+
+
 @pytest.mark.parametrize('spectrum, method', [
     (Pk.__new__(Pk), 'get'),
     (Pk.__new__(Pk), 'get_from_class'),
