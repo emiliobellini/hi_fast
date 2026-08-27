@@ -718,6 +718,18 @@ class Pk(Spectrum):
 
         return out
 
+    def get_fk_from_class(
+            self, k, z, params, nonlinear=False, precision=0,
+            verbose=False):
+        """Compute ``f(k, z)`` with HiCLASS using this P(k) metadata.
+
+        This supports HiCLASS fallback even when a bundle has no dedicated
+        growth-rate emulator.
+        """
+        return Fk.get_from_class(
+            self, k, z, params, nonlinear=nonlinear,
+            precision=precision, verbose=verbose)
+
     def get_fk(self, k, z, params, nonlinear=False):
         """Evaluate f(k,z) from P(k,z) for independent cosmology rows.
 

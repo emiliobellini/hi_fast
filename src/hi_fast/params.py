@@ -196,32 +196,52 @@ class Params(object):
                     ''.format(self._derived[par], common))
         return
 
-    def _check_output_param_values(self, params):
-        """Ensure converted parameters lie inside emulator ranges.
+    def _check_output_param_values(self, params, trusted_region='ext'):
+        """Ensure converted parameters lie inside one trusted region.
 
         Args:
             params (dict[str, float]): Parameter dictionary after conversion.
+                It may also contain emulator coordinates such as ``z_pk``.
+            trusted_region (str): Named emulator region: ``thin``, ``std``,
+                or ``ext``.
 
         Raises:
-            Exception: If any emulator parameter is out of its training
-            bounds.
+            ValueError: If the region is unknown or any emulator parameter
+                lies outside it.
         """
+        if trusted_region not in self._ranges_by_region:
+            raise ValueError(
+                'trusted_region must be one of {}; got {!r}'.format(
+                    sorted(self._ranges_by_region), trusted_region))
+
+        ranges = self._ranges_by_region[trusted_region]
         for par in params:
             if par not in self._emu:
                 continue
-            low, high = self._ranges[par]
+            low, high = ranges[par]
             in_range = low <= params[par] <= high
             if not in_range:
-                raise Exception(
-                    'Parameter {} = {} out of range [{} - {}]'
-                    ''.format(par, params[par], low, high))
+                raise ValueError(
+                    'Parameter {} = {} is outside the {} trusted region '
+                    '[{} - {}]'.format(
+                        par, params[par], trusted_region, low, high))
         return
+
+    def is_in_bounds(self, params, trusted_region='ext'):
+        """Return whether converted parameters lie in a trusted region."""
+        try:
+            self._check_output_param_values(
+                params, trusted_region=trusted_region)
+        except ValueError:
+            return False
+        return True
 
     def get(
             self,
             params,
             check_params_names=True,
             check_params_values=True,
+            trusted_region='ext',
             verbose=False):
         """Convert user parameters into the emulator basis.
 
@@ -232,6 +252,8 @@ class Params(object):
                 representative per required parameter is provided.
             check_params_values (bool): When True, verify the converted
                 parameters lie within the emulator training ranges.
+            trusted_region (str): Named range used when validating values:
+                ``thin``, ``std``, or ``ext``.
             verbose (bool): When True, print the provided and converted
                 parameters.
 
@@ -263,7 +285,8 @@ class Params(object):
                 out, shoot_on_name, shoot_on_val, shooting_rules)
 
         if check_params_values is True:
-            self._check_output_param_values(out)
+            self._check_output_param_values(
+                out, trusted_region=trusted_region)
 
         if verbose:
             self._print_verbose(params, out)

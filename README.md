@@ -16,6 +16,8 @@ observables can be evaluated without rerunning the Boltzmann solver.
   stay inside training ranges.
 - Call HiCLASS explicitly through matching `get_*_from_class` methods for
   validation or higher-accuracy calculations.
+- Select `thin`, `std`, or `ext` emulator trust regions and automatically
+  route out-of-region samples to HiCLASS.
 
 ## Installation
 
@@ -68,10 +70,10 @@ z = [0.0, 1.0]
 
 pk = hifast.get_pk(k, z, params, name="m", squeeze=True)
 fk = hifast.get_fk(k, z, params, name="m", squeeze=True)
-cl_tt = hifast.get_cell([2, 10, 50], params, name="TT")
+cl_tt = hifast.get_cell([2, 10, 50], params, name="TT", squeeze=True)
 
 print(pk.shape, fk.shape, cl_tt.shape)
-# (2, 2) (2, 2) (1, 3)
+# (2, 2) (2, 2) (3,)
 ```
 
 Use `print_info()` to inspect the observables and trust regions stored in a
@@ -98,12 +100,41 @@ region, and `ext` is the widest stored region. These ranges define where an
 emulator is meant to be trusted; they are distinct from the `k` and `ell`
 support of a spectrum.
 
-The current `get_*` methods validate against the stored emulator domain and
-raise an exception for out-of-range inputs when `check_params_values=True`.
-For the shipped bundles this current validation domain is the widest `ext`
-region. A future fallback mode is planned where calls can choose which region
-to trust, for example `thin`, `std`, or `ext`, and route points outside that
-chosen region to HiCLASS automatically.
+Every `get_*` method accepts a `trusted_region` boundary policy. Its default,
+`"ext"`, preserves the widest emulator domain. Choose `"thin"` or `"std"`
+for a more conservative domain, or pass `None` to bypass the emulator and use
+HiCLASS for the complete request:
+
+```python
+pk_conservative = hifast.get_pk(
+    k, z, params, trusted_region="std"
+)
+pk_class = hifast.get_pk(
+    k, z, params, trusted_region=None
+)
+```
+
+By default, a request outside the selected region raises an informative
+exception. Set `on_out_of_bounds="class"` to use HiCLASS only for the
+out-of-region entries:
+
+```python
+pk = hifast.get_pk(
+    k,
+    z,
+    parameter_rows,
+    trusted_region="std",
+    on_out_of_bounds="class",
+    class_precision=1,
+)
+```
+
+This policy covers cosmological parameters, redshift, and the emulator's
+fixed `k` or `ell` support. In mixed batches, trusted entries remain batched
+through the emulator while out-of-range redshifts are grouped into one
+HiCLASS calculation per affected cosmology. The requested output order and
+shape do not change. `class_precision` has the same meaning as the `precision`
+argument of the explicit `get_*_from_class` methods.
 
 For CMB spectra, the public `name` argument is the short selector (`TT`, `TE`,
 `EE`, `BB`, `Tp`, or `pp`). Complete names such as `cl_TT_lensed` identify
@@ -112,9 +143,11 @@ emulator bundles and FITS entries; they are also the names accepted by
 corresponding raw emulator when only the latter is available.
 
 The emulator methods accept `check_params_names` and `check_params_values`
-flags to enforce input validation and expose a `timeit` switch for profiling.
-Inputs outside the active emulator ranges raise an exception; HiFast does not
-switch to HiCLASS automatically yet.
+flags and expose a `timeit` switch for profiling. Setting
+`check_params_values=False` disables trusted-region checks for cosmological
+parameter values; redshift and `k`/`ell` support are still enforced by the
+boundary policy. Parameter-name checking remains active in all-HiCLASS mode
+unless explicitly disabled.
 
 The emulator methods are batch-first. Parameter input can be one dictionary,
 a sequence of dictionaries, or a NumPy array. A one-dimensional array is one

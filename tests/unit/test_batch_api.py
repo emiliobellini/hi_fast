@@ -10,17 +10,50 @@ import hi_fast.spectra as spectra_module
 class FakeParams:
     """Minimal replacement for Params that records no external state."""
 
+    _ranges_by_region = {
+        'thin': {'a': [0.0, 10.0], 'b': [0.0, 10.0],
+                 'z_pk': [0.0, 1.0]},
+        'std': {'a': [-10.0, 20.0], 'b': [-10.0, 20.0],
+                'z_pk': [0.0, 2.0]},
+        'ext': {'a': [-100.0, 100.0], 'b': [-100.0, 100.0],
+                'z_pk': [0.0, 10.0]},
+    }
+
     def get(self, params, **kwargs):
         return params.copy()
+
+    def _check_input_param_names(self, params):
+        return
+
+    def _check_output_param_values(self, params, trusted_region='ext'):
+        ranges = self._ranges_by_region[trusted_region]
+        for name, value in params.items():
+            if name not in ranges:
+                continue
+            low, high = ranges[name]
+            if not low <= value <= high:
+                raise ValueError(
+                    '{} outside the {} trusted region'.format(
+                        name, trusted_region))
+
+    def is_in_bounds(self, params, trusted_region='ext'):
+        try:
+            self._check_output_param_values(params, trusted_region)
+        except ValueError:
+            return False
+        return True
 
 
 class FakePk:
     name = 'pk_m'
     input_params_names = ['a', 'b']
     ref = {'params': {'ln_A_s_1e10': 3.0, 'n_s': 0.96}}
+    k_min = 0.0
+    k_max = 10.0
 
     def __init__(self):
         self.batch_lengths = []
+        self.class_calls = []
 
     def _values(self, k, z, params, offset):
         self.batch_lengths.append(len(params))
@@ -36,11 +69,19 @@ class FakePk:
     def get_fk(self, k, z, params):
         return self._values(k, z, params, offset=10.0)
 
+    def _check_k_values(self, k):
+        if np.min(k) < self.k_min or np.max(k) > self.k_max:
+            raise ValueError('k outside emulator support')
+
     def get_from_class(self, k, z, params, **kwargs):
         """Return the native CLASS orientation: (n_k, n_z)."""
         k = np.atleast_1d(k)
         z = np.atleast_1d(z)
-        return k[:, np.newaxis] + z[np.newaxis, :]
+        self.class_calls.append((params.copy(), z.copy(), kwargs))
+        return 100.0 + k[:, np.newaxis] + z[np.newaxis, :]
+
+    def get_fk_from_class(self, k, z, params, **kwargs):
+        return self.get_from_class(k, z, params, **kwargs)
 
 
 class FakeFk(FakePk):
@@ -54,9 +95,12 @@ class FakeFk(FakePk):
 class FakeCell:
     name = 'cl_TT_lensed'
     input_params_names = ['a', 'b']
+    ell_min = 2
+    ell_max = 3000
 
     def __init__(self):
         self.batch_lengths = []
+        self.class_calls = []
 
     def get(self, ell, params):
         self.batch_lengths.append(len(params))
@@ -65,9 +109,14 @@ class FakeCell:
             row['a'] + 2*row['b'] + ell for row in params
         ])
 
+    def _check_ell_values(self, ell):
+        if np.min(ell) < self.ell_min or np.max(ell) > self.ell_max:
+            raise ValueError('ell outside emulator support')
+
     def get_from_class(self, ell, params, **kwargs):
         """Return the native one-cosmology CLASS orientation."""
-        return np.atleast_1d(ell).astype(float)
+        self.class_calls.append((params.copy(), kwargs))
+        return 100.0 + np.atleast_1d(ell).astype(float)
 
 
 @pytest.fixture
@@ -124,6 +173,132 @@ def test_cell_dictionary_and_array_inputs_are_equivalent(hifast):
     expected = hifast.get_cell(ell, dictionaries, name='TT')
     result = hifast.get_cell(ell, array, name='TT')
     np.testing.assert_allclose(result, expected)
+
+
+@pytest.mark.parametrize('method, args, kwargs', [
+    ('get_pk', ([0.1], [0.5], {'a': 1.0, 'b': 2.0}), {'name': 'm'}),
+    ('get_fk', ([0.1], [0.5], {'a': 1.0, 'b': 2.0}), {'name': 'm'}),
+    ('get_cell', ([2], {'a': 1.0, 'b': 2.0}), {'name': 'TT'}),
+])
+def test_getters_reject_unknown_boundary_options(
+        hifast, method, args, kwargs):
+    function = getattr(hifast, method)
+    with pytest.raises(ValueError, match='trusted_region'):
+        function(*args, trusted_region='wide', **kwargs)
+    with pytest.raises(ValueError, match='on_out_of_bounds'):
+        function(*args, on_out_of_bounds='warn', **kwargs)
+
+
+def test_pk_mixed_redshifts_use_emulator_and_class(hifast):
+    k = np.array([0.1, 0.2])
+    z = np.array([0.5, 1.5])
+    params = {'a': 1.0, 'b': 2.0}
+
+    result = hifast.get_pk(
+        k, z, params, name='m', trusted_region='thin',
+        on_out_of_bounds='class', class_precision=2)
+
+    expected = np.array([
+        [1.0 + 2*2.0 + 0.5 + k],
+        [100.0 + 1.5 + k],
+    ]).reshape(1, 2, 2)
+    np.testing.assert_allclose(result, expected)
+    assert len(hifast._spectra['pk_m'].class_calls) == 1
+    assert hifast._spectra['pk_m'].class_calls[0][2]['precision'] == 2
+
+
+def test_pk_mixed_cosmologies_use_class_only_outside_region(hifast):
+    k = np.array([0.1, 0.2])
+    params = [
+        {'a': 1.0, 'b': 2.0},
+        {'a': 20.0, 'b': 2.0},
+    ]
+
+    result = hifast.get_pk(
+        k, 0.5, params, name='m', trusted_region='thin',
+        on_out_of_bounds='class')
+
+    np.testing.assert_allclose(
+        result[0, 0], 1.0 + 2*2.0 + 0.5 + k)
+    np.testing.assert_allclose(result[1, 0], 100.0 + 0.5 + k)
+    assert len(hifast._spectra['pk_m'].class_calls) == 1
+
+
+@pytest.mark.parametrize('method, kwargs', [
+    ('get_pk', {'name': 'm'}),
+    ('get_fk', {'name': 'm', 'get_from_pk': False}),
+    ('get_fk', {'name': 'm', 'get_from_pk': True}),
+])
+def test_none_trusted_region_always_uses_class(
+        hifast, method, kwargs):
+    result = getattr(hifast, method)(
+        [0.1, 0.2], [0.5, 1.5], {'a': 20.0, 'b': 2.0},
+        trusted_region=None, class_precision=1, **kwargs)
+
+    expected = np.array([[
+        100.0 + 0.5 + np.array([0.1, 0.2]),
+        100.0 + 1.5 + np.array([0.1, 0.2]),
+    ]])
+    np.testing.assert_allclose(result, expected)
+
+
+def test_fk_class_fallback_works_without_dedicated_fk(hifast):
+    del hifast._spectra['fk_m']
+    del hifast._params['fk_m']
+
+    result = hifast.get_fk(
+        [0.1, 0.2], 0.5, {'a': 1.0, 'b': 2.0}, name='m',
+        trusted_region=None)
+
+    np.testing.assert_allclose(
+        result, [[[100.6, 100.7]]])
+
+
+def test_outside_region_raises_by_default(hifast):
+    with pytest.raises(ValueError, match='thin trusted region'):
+        hifast.get_pk(
+            [0.1], 0.5, {'a': 20.0, 'b': 2.0}, name='m',
+            trusted_region='thin')
+
+
+def test_disabling_parameter_value_checks_keeps_axis_checks(hifast):
+    result = hifast.get_pk(
+        [0.1], 0.5, {'a': 20.0, 'b': 2.0}, name='m',
+        trusted_region='thin', check_params_values=False)
+    np.testing.assert_allclose(result, [[[24.6]]])
+
+    with pytest.raises(ValueError, match='z_pk'):
+        hifast.get_pk(
+            [0.1], 1.5, {'a': 20.0, 'b': 2.0}, name='m',
+            trusted_region='thin', check_params_values=False)
+
+
+def test_cell_can_fall_back_per_cosmology(hifast):
+    ell = np.array([2, 10])
+    params = [
+        {'a': 1.0, 'b': 2.0},
+        {'a': 20.0, 'b': 2.0},
+    ]
+
+    result = hifast.get_cell(
+        ell, params, name='TT', trusted_region='thin',
+        on_out_of_bounds='class')
+
+    np.testing.assert_allclose(result[0], 1.0 + 2*2.0 + ell)
+    np.testing.assert_allclose(result[1], 100.0 + ell)
+    assert len(hifast._spectra['cl_TT_lensed'].class_calls) == 1
+
+
+def test_spectral_axis_outside_support_uses_class(hifast):
+    pk = hifast.get_pk(
+        [20.0], 0.5, {'a': 1.0, 'b': 2.0}, name='m',
+        on_out_of_bounds='class')
+    cell = hifast.get_cell(
+        [4000], {'a': 1.0, 'b': 2.0}, name='TT',
+        on_out_of_bounds='class')
+
+    np.testing.assert_allclose(pk, [[[120.5]]])
+    np.testing.assert_allclose(cell, [[4100.0]])
 
 
 def test_cell_getters_fall_back_to_raw_emulator(hifast):

@@ -761,6 +761,10 @@ def _format_info_markdown(metadata, name=None, bounds=None):
             'Trust regions are shown as `thin`, `std`, and `ext`.')
     else:
         lines.append('Trust region: `{}`.'.format(bounds))
+    lines.append(
+        'Select one with `trusted_region` in a public `get_*` call. '
+        'Use `on_out_of_bounds="class"` for automatic HiCLASS fallback, '
+        'or `trusted_region=None` to use HiCLASS for every input.')
     lines.append('')
 
     groups = ('Power spectra', 'Growth rates', 'CMB spectra', 'Other spectra')
@@ -821,6 +825,8 @@ def _print_summary(metadata, bounds):
              'print_info(name, bounds="std") for one selected region.')
     else:
         info('Showing trust region: {}'.format(bounds))
+    info('Choose one with trusted_region; set on_out_of_bounds="class" '
+         'for HiCLASS fallback.')
 
     groups = ('Power spectra', 'Growth rates', 'CMB spectra', 'Other spectra')
     for group in groups:
@@ -849,6 +855,8 @@ def _print_summary(metadata, bounds):
 def _print_detail(metadata, bounds):
     """Print detailed information for a single spectrum emulator."""
     info('HiFast emulator info:')
+    info('Choose a region with trusted_region; set '
+         'on_out_of_bounds="class" for HiCLASS fallback.')
 
     for entry in metadata:
         print('\n')
