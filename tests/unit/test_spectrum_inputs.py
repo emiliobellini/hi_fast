@@ -3,7 +3,14 @@
 import numpy as np
 import pytest
 
-from hi_fast.spectra import Cell, Fk, Pk, Spectrum
+from hi_fast.spectra import Cell, Fk, GridSpectrum, Pk, Spectrum
+
+
+def test_grid_spectrum_hierarchy_separates_pk_and_fk_interfaces():
+    assert issubclass(Pk, GridSpectrum)
+    assert issubclass(Fk, GridSpectrum)
+    assert not issubclass(Fk, Pk)
+    assert not hasattr(Fk, 'get_sigma_R')
 
 
 def test_coordinate_normalization_accepts_general_sequences():

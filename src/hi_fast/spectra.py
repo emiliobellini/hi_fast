@@ -419,19 +419,14 @@ class Spectrum(object):
         return all_params
 
 
-# ------------------- Pk -----------------------------------------------------#
+# ------------------- Grid spectra ------------------------------------------#
 
-class Pk(Spectrum):
-    """Matter or Weyl-power-spectrum emulator."""
+class GridSpectrum(Spectrum):
+    """Common infrastructure for spectra sampled on a ``(k, z)`` grid."""
 
     def __init__(self, **kwargs):
-        Spectrum.__init__(self, **kwargs)
+        super().__init__(**kwargs)
 
-        # Input parameters (primordial power spectrum)
-        self.input_params_names = [nm for nm in self.x_names if nm != 'z_pk']
-        self.input_params_names += ['ln_A_s_1e10', 'n_s']
-
-        # Add ref_z and ref_k to ref dictionary
         self.ref['z'] = kwargs['ref_z']
         self.ref['k'] = kwargs['ref_k']
         self.ref['spectrum_z_spline'] = None
@@ -518,6 +513,79 @@ class Pk(Spectrum):
             params[p] if p != 'z_pk' else None for p in self.x_names]
         vals[self.x_names.index('z_pk')] = kwargs['z_pk']
         return np.array(vals)
+
+    def _get_class_request(
+            self, k, z, params, precision=0, verbose=False):
+        """Build CLASS parameters and coverage for a grid-spectrum request."""
+        k = self._to_numpy_array(k)
+        z = self._to_numpy_array(z)
+        class_args = {n: self.class_args[n] for n in self.class_args
+                      if n not in self.class_high_prec}
+        class_args['output'] = 'tCl, pCl, lCl, mPk, dTk'
+        class_args['P_k_max_h/Mpc'] = k.max()
+        class_args['z_max_pk'] = max(z.max(), 0.1)
+        class_params = self._get_input_params_class(
+            params, precision, class_args, verbose=verbose)
+        requirements = {
+            'output': 'mPk, dTk',
+            'P_k_max_h/Mpc': k.max(),
+            'z_max_pk': max(z.max(), 0.1),
+        }
+        return class_params, requirements
+
+    def _get_fk_from_class(
+            self, k, z, params, nonlinear=False, precision=0,
+            verbose=False):
+        """Compute ``f(k, z)`` from a CLASS power-spectrum table."""
+        if nonlinear:
+            raise ValueError('Nonlinear Pk not yet implemented')
+
+        k = self._to_numpy_array(k)
+        z = self._to_numpy_array(z)
+        params, requirements = self._get_class_request(
+            k, z, params, precision=precision, verbose=verbose)
+        with self._use_class(params, requirements=requirements) as cosmo:
+            if self.name.endswith('_cb'):
+                pk_array, k_array, z_array = cosmo.get_pk_and_k_and_z(
+                    nonlinear=False,
+                    only_clustering_species=True,
+                    h_units=False)
+            elif self.name.endswith('_m'):
+                pk_array, k_array, z_array = cosmo.get_pk_and_k_and_z(
+                    nonlinear=False,
+                    only_clustering_species=False,
+                    h_units=False)
+            elif self.name.endswith('_weyl'):
+                pk_array, k_array, z_array = (
+                    cosmo.get_Weyl_pk_and_k_and_z(
+                        nonlinear=False,
+                        h_units=False))
+            else:
+                raise ValueError(
+                    'Unsupported grid spectrum {}'.format(self.name))
+
+            z_array = np.flip(z_array)
+            pk_array = np.flip(pk_array, axis=1)
+            k_array /= cosmo.h()
+
+            pk = interp.make_splrep(k_array, pk_array, s=0)(k)
+            pk_spline = interp.make_splrep(z_array, pk.T, s=0)
+            pk_at_z = pk_spline(z).T
+            dpkdz = pk_spline.derivative()(z).T
+            return -0.5 * (1. + z) * dpkdz / pk_at_z
+
+
+# ------------------- Pk -----------------------------------------------------#
+
+class Pk(GridSpectrum):
+    """Matter or Weyl-power-spectrum emulator."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        # Input parameters (primordial power spectrum)
+        self.input_params_names = [nm for nm in self.x_names if nm != 'z_pk']
+        self.input_params_names += ['ln_A_s_1e10', 'n_s']
 
     def _sigma_R_integral(self, k, pk, R):
         """Compute ``sigma_R`` via the standard top-hat integral.
@@ -646,25 +714,6 @@ class Pk(Spectrum):
 
         return out
 
-    def _get_class_request(
-            self, k, z, params, precision=0, verbose=False):
-        """Build CLASS parameters and coverage for a P(k, z) request."""
-        k = self._to_numpy_array(k)
-        z = self._to_numpy_array(z)
-        class_args = {n: self.class_args[n] for n in self.class_args
-                      if n not in self.class_high_prec}
-        class_args['output'] = 'tCl, pCl, lCl, mPk, dTk'
-        class_args['P_k_max_h/Mpc'] = k.max()
-        class_args['z_max_pk'] = max(z.max(), 0.1)
-        class_params = self._get_input_params_class(
-            params, precision, class_args, verbose=verbose)
-        requirements = {
-            'output': 'mPk, dTk',
-            'P_k_max_h/Mpc': k.max(),
-            'z_max_pk': max(z.max(), 0.1),
-        }
-        return class_params, requirements
-
     def get_from_class(
             self, k, z, params, nonlinear=False, precision=0, verbose=False):
         """Compute ``P(k, z)`` or ``f(k, z)`` directly with CLASS.
@@ -722,8 +771,8 @@ class Pk(Spectrum):
         This supports HiCLASS fallback even when a bundle has no dedicated
         growth-rate emulator.
         """
-        return Fk.get_from_class(
-            self, k, z, params, nonlinear=nonlinear,
+        return self._get_fk_from_class(
+            k, z, params, nonlinear=nonlinear,
             precision=precision, verbose=verbose)
 
     def get_fk(self, k, z, params, nonlinear=False):
@@ -822,13 +871,13 @@ class Pk(Spectrum):
         return sigma8 * np.sqrt(params['Omega_m']/0.3)
 
 
-# ------------------- Pk -----------------------------------------------------#
+# ------------------- Fk -----------------------------------------------------#
 
-class Fk(Pk):
-    """Growth-rate emulator using the same infrastructure as ``Pk``."""
+class Fk(GridSpectrum):
+    """Growth-rate emulator sampled on a ``(k, z)`` grid."""
 
     def __init__(self, **kwargs):
-        Pk.__init__(self, **kwargs)
+        super().__init__(**kwargs)
 
         # Input parameters
         self.input_params_names = [nm for nm in self.x_names if nm != 'z_pk']
@@ -885,44 +934,9 @@ class Fk(Pk):
             numpy.ndarray: Growth-rate values derived from CLASS outputs.
         """
 
-        if nonlinear:
-            raise ValueError('Nonlinear Pk not yet implemented')
-
-        k = self._to_numpy_array(k)
-        z = self._to_numpy_array(z)
-
-        params, requirements = self._get_class_request(
-            k, z, params, precision=precision, verbose=verbose)
-        with self._use_class(params, requirements=requirements) as cosmo:
-            # Get correct spectrum
-            if self.name.endswith('_cb'):
-                pk_array, k_array, z_array = cosmo.get_pk_and_k_and_z(
-                    nonlinear=False,
-                    only_clustering_species=True,
-                    h_units=False)
-            elif self.name.endswith('_m'):
-                pk_array, k_array, z_array = cosmo.get_pk_and_k_and_z(
-                    nonlinear=False,
-                    only_clustering_species=False,
-                    h_units=False)
-            elif self.name.endswith('_weyl'):
-                pk_array, k_array, z_array = (
-                    cosmo.get_Weyl_pk_and_k_and_z(
-                        nonlinear=False,
-                        h_units=False))
-
-            # Flip z_array (for interpolation it has to be increasing)
-            z_array = np.flip(z_array)
-            pk_array = np.flip(pk_array, axis=1)
-            k_array /= cosmo.h()
-
-            # Evaluate pk at the requested range
-            pk = interp.make_splrep(k_array, pk_array, s=0)(k)
-            pk_at_z = interp.make_splrep(z_array, pk.T, s=0)(z).T
-            dpkdz = interp.make_splrep(
-                z_array, pk.T, s=0).derivative()(z).T
-            out = -0.5 * (1+z) * dpkdz/pk_at_z
-        return out
+        return self._get_fk_from_class(
+            k, z, params, nonlinear=nonlinear,
+            precision=precision, verbose=verbose)
 
 
 # ------------------- Cell ---------------------------------------------------#
