@@ -227,8 +227,13 @@ fk_from_pk = hifast.get_fk(k, z, params, name="m", get_from_pk=True)
 `get_pk_from_class`, `get_fk_from_class`, and `get_cell_from_class` provide
 explicit HiCLASS calculations for one cosmology. Their `precision` argument
 accepts presets `0`, `1`, and `2`, or a dictionary of precision overrides.
-These calls are independent: HiFast currently does not cache and reuse one
-HiCLASS computation across different observables.
+HiFast privately retains the latest compatible HiCLASS computation and shares
+it across these methods and automatic out-of-bounds fallbacks. Requests reuse
+the calculation when the cosmological and precision parameters are unchanged
+and its computed outputs, wavenumber/redshift ranges, and multipole range
+cover the new observable. A request requiring wider coverage upgrades the
+calculation; changing cosmology or precision replaces it. This is automatic
+and does not change the public API.
 
 Only linear power spectra and growth rates are currently supported;
 `nonlinear=True` raises an exception.

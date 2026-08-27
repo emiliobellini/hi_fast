@@ -2,6 +2,7 @@ import numpy as np
 
 from . import io as io
 from . import spectra as sp
+from ._class_cache import HiClassCache
 from .params import Params
 
 
@@ -33,11 +34,22 @@ class HiFast(object):
         except (OSError, ValueError) as error:
             io.warning('Ignoring invalid validation report: {}'.format(error))
             self._validation = None
+        self._class_cache = HiClassCache()
+        for spectrum in self._spectra.values():
+            spectrum._class_cache = self._class_cache
         # Init parameters handlers
         self._params = {spec.name: Params(spec, self._spectra)
                         for spec in self._spectra.values()}
 
         pass
+
+    def _clear_class_cache(self):
+        """Release the private shared HiCLASS computation."""
+        self._class_cache.clear()
+
+    def _get_class_cache_info(self):
+        """Return private diagnostics for the shared HiCLASS cache."""
+        return self._class_cache.info()
 
     @staticmethod
     def _batch_ranges(length, batch_size):

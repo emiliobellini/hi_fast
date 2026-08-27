@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 import hiclassy
 import numpy as np
 import scipy.interpolate as interp
@@ -90,6 +92,23 @@ class Spectrum(object):
         self.ell_max = None
 
         pass
+
+    @contextmanager
+    def _use_class(self, params, requirements=None):
+        """Yield a shared cached HiCLASS instance when one is configured."""
+        cache = getattr(self, '_class_cache', None)
+        if cache is not None:
+            with cache.use(params, requirements=requirements) as cosmo:
+                self.cosmo = cosmo
+                yield cosmo
+            return
+
+        # Spectrum objects constructed outside HiFast retain the historical
+        # standalone behavior.
+        self.cosmo = hiclassy.HiClass()
+        self.cosmo.set(params)
+        self.cosmo.compute()
+        yield self.cosmo
 
     def _to_numpy_array(self, x):
         """Convert scalars/lists into numpy arrays.
@@ -688,33 +707,35 @@ class Pk(Spectrum):
         params = self._get_input_params_class(
             params, precision, class_args, verbose=verbose)
 
-        # Compute
-        self.cosmo = hiclassy.HiClass()
-        self.cosmo.set(params)
-        self.cosmo.compute()
+        requirements = {
+            'output': 'mPk, dTk',
+            'P_k_max_h/Mpc': k.max(),
+            'z_max_pk': max(z.max(), 0.1),
+        }
+        with self._use_class(params, requirements=requirements) as cosmo:
+            # Get correct spectrum
+            if nonlinear is True and self.name.endswith('_cb'):
+                fun = cosmo.get_pk_cb
+            elif nonlinear is True and self.name.endswith('_m'):
+                fun = cosmo.get_pk
+            elif nonlinear is True and self.name.endswith('_weyl'):
+                fun = self._get_weyl_pk
+            elif nonlinear is False and self.name.endswith('_cb'):
+                fun = cosmo.get_pk_cb_lin
+            elif nonlinear is False and self.name.endswith('_m'):
+                fun = cosmo.get_pk_lin
+            elif nonlinear is False and self.name.endswith('_weyl'):
+                fun = self._get_weyl_pk_lin
 
-        # Get correct spectrum
-        if nonlinear is True and self.name.endswith('_cb'):
-            fun = self.cosmo.get_pk_cb
-        elif nonlinear is True and self.name.endswith('_m'):
-            fun = self.cosmo.get_pk
-        elif nonlinear is True and self.name.endswith('_weyl'):
-            fun = self._get_weyl_pk
-        elif nonlinear is False and self.name.endswith('_cb'):
-            fun = self.cosmo.get_pk_cb_lin
-        elif nonlinear is False and self.name.endswith('_m'):
-            fun = self.cosmo.get_pk_lin
-        elif nonlinear is False and self.name.endswith('_weyl'):
-            fun = self._get_weyl_pk_lin
-
-        # convert k in units of 1/Mpc
-        n_mu = 1
-        n_z = len(z)
-        n_k = len(k)
-        k_3D = np.broadcast_to(
-            k[:, np.newaxis, np.newaxis], (n_k, n_z, n_mu)) * self.cosmo.h()
-        out = fun(k_3D, z, n_k, n_z, n_mu) * self.cosmo.h()**3.
-        out = out[:, :, 0]
+            # convert k in units of 1/Mpc
+            n_mu = 1
+            n_z = len(z)
+            n_k = len(k)
+            k_3D = np.broadcast_to(
+                k[:, np.newaxis, np.newaxis],
+                (n_k, n_z, n_mu)) * cosmo.h()
+            out = fun(k_3D, z, n_k, n_z, n_mu) * cosmo.h()**3.
+            out = out[:, :, 0]
 
         return out
 
@@ -909,39 +930,40 @@ class Fk(Pk):
         params = self._get_input_params_class(
             params, precision, class_args, verbose=verbose)
 
-        # Compute
-        self.cosmo = hiclassy.HiClass()
-        self.cosmo.set(params)
-        self.cosmo.compute()
+        requirements = {
+            'output': 'mPk, dTk',
+            'P_k_max_h/Mpc': k.max(),
+            'z_max_pk': max(z.max(), 0.1),
+        }
+        with self._use_class(params, requirements=requirements) as cosmo:
+            # Get correct spectrum
+            if self.name.endswith('_cb'):
+                pk_array, k_array, z_array = cosmo.get_pk_and_k_and_z(
+                    nonlinear=nonlinear,
+                    only_clustering_species=True,
+                    h_units=False)
+            elif self.name.endswith('_m'):
+                pk_array, k_array, z_array = cosmo.get_pk_and_k_and_z(
+                    nonlinear=nonlinear,
+                    only_clustering_species=False,
+                    h_units=False)
+            elif self.name.endswith('_weyl'):
+                pk_array, k_array, z_array = (
+                    cosmo.get_Weyl_pk_and_k_and_z(
+                        nonlinear=nonlinear,
+                        h_units=False))
 
-        # Get correct spectrum
-        if self.name.endswith('_cb'):
-            pk_array, k_array, z_array = self.cosmo.get_pk_and_k_and_z(
-                nonlinear=nonlinear,
-                only_clustering_species=True,
-                h_units=False)
-        elif self.name.endswith('_m'):
-            pk_array, k_array, z_array = self.cosmo.get_pk_and_k_and_z(
-                nonlinear=nonlinear,
-                only_clustering_species=False,
-                h_units=False)
-        elif self.name.endswith('_weyl'):
-            pk_array, k_array, z_array = self.cosmo.get_Weyl_pk_and_k_and_z(
-                nonlinear=nonlinear,
-                h_units=False)
+            # Flip z_array (for interpolation it has to be increasing)
+            z_array = np.flip(z_array)
+            pk_array = np.flip(pk_array, axis=1)
+            k_array /= cosmo.h()
 
-        # Flip z_array (for the interpolation it has to be increasing)
-        z_array = np.flip(z_array)
-        pk_array = np.flip(pk_array, axis=1)
-
-        k_array /= self.cosmo.h()
-
-        # Evaluate pk at the requested range
-        pk = interp.make_splrep(k_array, pk_array, s=0)(k)
-        pk_at_z = interp.make_splrep(z_array, pk.T, s=0)(z).T
-        dpkdz = interp.make_splrep(z_array, pk.T, s=0).derivative()(z).T
-
-        out = -0.5 * (1+z) * dpkdz/pk_at_z
+            # Evaluate pk at the requested range
+            pk = interp.make_splrep(k_array, pk_array, s=0)(k)
+            pk_at_z = interp.make_splrep(z_array, pk.T, s=0)(z).T
+            dpkdz = interp.make_splrep(
+                z_array, pk.T, s=0).derivative()(z).T
+            out = -0.5 * (1+z) * dpkdz/pk_at_z
         return out
 
 
@@ -1083,17 +1105,17 @@ class Cell(Spectrum):
         params = self._get_input_params_class(
             params, precision, class_args, verbose=verbose)
 
-        # Compute
-        self.cosmo = hiclassy.HiClass()
-        self.cosmo.set(params)
-        self.cosmo.compute()
-
-        # Get Cells
-        cl_type = self.name.split('_')[1].lower()
-        if self.name.endswith('_lensed'):
-            out = self.cosmo.lensed_cl(lmax=ell.max())[cl_type]
-        else:
-            out = self.cosmo.raw_cl(lmax=ell.max())[cl_type]
+        requirements = {
+            'output': 'tCl, pCl, lCl',
+            'l_max_scalars': ell.max(),
+        }
+        with self._use_class(params, requirements=requirements) as cosmo:
+            # Get Cells
+            cl_type = self.name.split('_')[1].lower()
+            if self.name.endswith('_lensed'):
+                out = cosmo.lensed_cl(lmax=ell.max())[cl_type]
+            else:
+                out = cosmo.raw_cl(lmax=ell.max())[cl_type]
 
         # Mask Cells
         ell_out = np.arange(ell.max()+1)
