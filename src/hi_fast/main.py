@@ -1,6 +1,8 @@
 import numpy as np
 
-from . import io as io
+from . import _filesystem as filesystem
+from . import _metadata as metadata
+from . import _terminal as terminal
 from . import spectra as sp
 from ._class_service import HiClassService
 from .params import Params
@@ -29,9 +31,11 @@ class HiFast(object):
         self._spectra = self._load(
             name, root=root, timeit=timeit, verbose=verbose)
         try:
-            self._validation = io._load_validation_report(name, root=root)
+            self._validation = filesystem._load_validation_report(
+                name, root=root)
         except (OSError, ValueError) as error:
-            io.warning('Ignoring invalid validation report: {}'.format(error))
+            terminal.warning(
+                'Ignoring invalid validation report: {}'.format(error))
             self._validation = None
         self._class_service = HiClassService(self._spectra)
         self._class_cache = self._class_service.cache
@@ -63,7 +67,7 @@ class HiFast(object):
                 spectrum._class_cache = service.cache
         return service
 
-    @io.timeit
+    @terminal.timeit
     def get_background(
             self,
             params,
@@ -123,7 +127,7 @@ class HiFast(object):
             params, z, quantities, precision=precision, squeeze=squeeze,
             verbose=verbose)
 
-    @io.timeit
+    @terminal.timeit
     def get_background_table(
             self,
             params,
@@ -293,7 +297,7 @@ class HiFast(object):
         """Resolve a public CMB selector to an available emulator."""
         return self._get_class_service().get_cell_spectrum(name)
 
-    @io.timeit
+    @terminal.timeit
     def _load(self, name, root, timeit=False, verbose=False):
         """Load every spectrum emulator shipped inside a bundle.
 
@@ -301,7 +305,7 @@ class HiFast(object):
             name (str): Bundle name to load (e.g. ``lcdm``).
             root (str): Directory that contains the bundle directories or
                 files.
-            timeit (bool): Unused placeholder to keep ``@io.timeit``
+            timeit (bool): Unused placeholder required by ``@timeit``
                 signature consistent.
             verbose (bool): When True, report which model was loaded.
 
@@ -310,15 +314,15 @@ class HiFast(object):
             instantiated emulator object.
         """
         if verbose:
-            io.title('HiFast: loading {} emulators'.format(name))
+            terminal.title('HiFast: loading {} emulators'.format(name))
         # Initialize spectra dictionary
         spectra = {}
         # Load emulators as dictionary
-        for file in io.Folder(name, root=root).list_files():
+        for file in filesystem.Folder(name, root=root).list_files():
             if not file.endswith('.joblib'):
                 continue
             # Read content emu
-            emufile = io.EmuFile(file)
+            emufile = filesystem.EmuFile(file)
 
             # Check that it is not a dictionary file
             if emufile._is_dict_file() is False:
@@ -328,11 +332,11 @@ class HiFast(object):
             # Store content
             spectra[content['name']] = sp.Spectrum.choose_one(**content)
         if verbose:
-            io.info('Loaded {} emulators for {} ----> {}'.format(
+            terminal.info('Loaded {} emulators for {} ----> {}'.format(
                 len(spectra), name, ', '.join(sorted(spectra.keys()))))
         return spectra
 
-    @io.timeit
+    @terminal.timeit
     def get_pk(
             self,
             k,
@@ -509,7 +513,7 @@ class HiFast(object):
 
         return out
 
-    @io.timeit
+    @terminal.timeit
     def get_fk(
             self,
             k,
@@ -553,8 +557,9 @@ class HiFast(object):
 
         if get_from_pk is False and 'fk_{}'.format(name) not in self._spectra:
             get_from_pk = True
-            io.warning('No emulator for fk_{} found; computing from Pk instead'
-                       ''.format(name))
+            terminal.warning(
+                'No emulator for fk_{} found; computing from Pk instead'
+                .format(name))
 
         if 'fk_{}'.format(name) in self._spectra:
             input_spectrum = self._spectra['fk_{}'.format(name)]
@@ -681,7 +686,7 @@ class HiFast(object):
 
         return out
 
-    @io.timeit
+    @terminal.timeit
     def get_cell(
             self,
             ell,
@@ -798,7 +803,7 @@ class HiFast(object):
 
         return out
 
-    @io.timeit
+    @terminal.timeit
     def get_from_class(
             self,
             params,
@@ -842,7 +847,7 @@ class HiFast(object):
             params, observables, precision=precision, squeeze=squeeze,
             verbose=verbose)
 
-    @io.timeit
+    @terminal.timeit
     def get_pk_from_class(
             self,
             k,
@@ -889,7 +894,7 @@ class HiFast(object):
         return self._get_class_service().get_pk(
             k, z, params, name, precision, squeeze, verbose)
 
-    @io.timeit
+    @terminal.timeit
     def get_fk_from_class(
             self,
             k,
@@ -936,7 +941,7 @@ class HiFast(object):
         return self._get_class_service().get_fk(
             k, z, params, name, precision, squeeze, verbose)
 
-    @io.timeit
+    @terminal.timeit
     def get_cell_from_class(
             self,
             ell,
@@ -984,7 +989,7 @@ class HiFast(object):
             output (str | None): Optional file path used only with
                 ``markdown=True``. When omitted, Markdown is printed.
         """
-        return io._print_info(
+        return metadata._print_info(
             self._spectra,
             self._params,
             name=name,

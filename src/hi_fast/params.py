@@ -1,12 +1,12 @@
 import numpy as np
 import scipy.optimize as opt
-from . import io as io
+from . import _terminal as terminal
 
 
 class Params(object):
     """Handle parameter validation and conversions for a spectrum."""
 
-    @io.timeit
+    @terminal.timeit
     def __init__(self, spectrum, spectra, timeit=False):
         """Create a parameter handler for a given emulator.
 
@@ -117,7 +117,7 @@ class Params(object):
             out_params (dict[str, float]): Parameters after conversion to the
                 emulator basis.
         """
-        io.info('Input parameters for {}:'.format(self._spectrum_name))
+        terminal.info('Input parameters for {}:'.format(self._spectrum_name))
         for par in self._required:
             msg = ' - {}: {}'.format(par, out_params[par])
             standard_rules, shooting_rules = self._conversion_rules()

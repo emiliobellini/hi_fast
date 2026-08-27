@@ -8,6 +8,15 @@ from hi_fast import HiFast
 from hi_fast._class_service import HiClassService
 import hi_fast.io as io_module
 import hi_fast.spectra as spectra_module
+from hi_fast._filesystem import FitsFile
+from hi_fast._metadata import _print_info
+from hi_fast._terminal import timeit
+
+
+def test_io_facade_preserves_existing_imports():
+    assert io_module.FitsFile is FitsFile
+    assert io_module._print_info is _print_info
+    assert io_module.timeit is timeit
 
 
 class FakeParams:
