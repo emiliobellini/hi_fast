@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "hi_fast"
 version = "0.1.0"
 authors = [{name="Emilio Bellini"}]
-description = "TODO"
+description = "Fast emulation interface for HiCLASS cosmological observables"
 requires-python = ">=3.10,<3.14"
 dependencies = [
     "astropy",

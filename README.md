@@ -101,7 +101,8 @@ region, and `ext` is the widest stored region. These ranges define where an
 emulator is meant to be trusted; they are distinct from the `k` and `ell`
 support of a spectrum.
 
-Every `get_*` method accepts a `trusted_region` boundary policy. Its default,
+The emulator-facing `get_pk`, `get_fk`, and `get_cell` methods accept a
+`trusted_region` boundary policy. Its default,
 `"ext"`, preserves the widest emulator domain. Choose `"thin"` or `"std"`
 for a more conservative domain, or pass `None` to bypass the emulator and use
 HiCLASS for the complete request:
@@ -308,11 +309,11 @@ HiCLASS instance, because exporting all internal columns is more expensive
 than copying the resulting arrays. It is invalidated automatically whenever
 the underlying CLASS computation is replaced or upgraded.
 
-For developers, `_BACKGROUND_AT_Z` maps public names to vectorized HiCLASS
-methods whose only argument is `z`; `_BACKGROUND_SCALARS` lists computed
-HiCLASS properties. New entries also need a unit in `_BACKGROUND_UNITS`. A
-quantity requiring additional arguments or CLASS modules needs dedicated
-extraction and computation requirements rather than only a registry entry.
+For developers, `HiClassService.BACKGROUND_QUANTITIES` is the authoritative
+background registry. Each entry records the HiCLASS method or property,
+whether it requires `z`, and its units. A quantity requiring additional
+arguments or CLASS modules also needs dedicated extraction and computation
+requirements rather than only a registry entry.
 
 Only linear power spectra and growth rates are currently supported;
 `nonlinear=True` raises an exception.
@@ -326,6 +327,8 @@ printed before the exception is propagated.
 ## Development Notes
 
 - Core source lives under `src/hi_fast/`.
+- Filesystem/FITS helpers, metadata rendering, and terminal formatting live in
+  separate private modules; `hi_fast.io` remains a compatibility facade.
 - Emulator metadata and weights reside in `emu/`.
 - Scientific validation scripts are located directly in `tests/`.
 - The held-out accuracy and histogram workflow is

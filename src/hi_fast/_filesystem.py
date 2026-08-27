@@ -49,9 +49,11 @@ class Folder(object):
     """
 
     def __repr__(self):
+        """Return the absolute folder path."""
         return self.path
 
     def __str__(self):
+        """Return the absolute folder path as text."""
         return str(self.path)
 
     def __init__(self, path, root=None, should_exist=False):
@@ -226,6 +228,7 @@ class FitsFile(object):
     """
 
     def __init__(self, fname, root=None):
+        """Create a helper for a FITS or compressed FITS file."""
         # Define path
         if root is None:
             self.path = os.path.abspath(fname)
@@ -240,6 +243,7 @@ class FitsFile(object):
         return
 
     def _flatten_dict(self, nested_dict, delimiter='__'):
+        """Encode a nested dictionary as FITS-compatible header entries."""
         split_dict = {}
         flat_dict = self._flatten_dict_recursive(
             nested_dict, delimiter=delimiter)
@@ -268,6 +272,7 @@ class FitsFile(object):
         return OrderedDict(items)
 
     def _unflatten_dict(self, flat_dict, delimiter='__'):
+        """Reconstruct a nested ordered dictionary from header entries."""
         current_dict = {}
         # We first fix the correspondence between keys and values to get a list
         # of flattened keys and values (si discussion in _flatten_dict above).
@@ -276,10 +281,6 @@ class FitsFile(object):
                 key = flat_dict[key_flat]
                 val = flat_dict[key_flat[len(delimiter):]]
                 current_dict[key] = val
-        """
-        Reconstruct a nested dictionary from flattened keys,
-        preserving order.
-        """
         result = OrderedDict()
         for key, value in current_dict.items():
             parts = key.split(delimiter)
@@ -292,6 +293,7 @@ class FitsFile(object):
         return result
 
     def _delistify(self, flat_dict, delimiter='_*_'):
+        """Encode list-valued header entries as delimited strings."""
         # fits header do not accept lists as values.
         # here we convert them into strings, assuming
         # ndim <= 2.
@@ -309,6 +311,7 @@ class FitsFile(object):
         return flat_dict
 
     def _listify(self, flat_dict, delimiter='_*_'):
+        """Decode list-valued header strings into Python lists."""
         # fits header do not accept lists as values.
         # here we convert back delistified lists,
         # assuming ndim <= 2.
@@ -343,6 +346,7 @@ class FitsFile(object):
         return current_dict
 
     def _floatify(self, val_string):
+        """Convert a string to ``float`` when possible."""
         try:
             val = float(val_string)
         except ValueError:
@@ -465,9 +469,11 @@ class EmuFile(object):
     """Helper for locating, loading, and validating emulator files."""
 
     def __repr__(self):
+        """Return the emulator metadata path."""
         return self.path
 
     def __str__(self):
+        """Return the emulator metadata path as text."""
         return str(self.path)
 
     def __init__(self, fname, root=None, should_exist=False):
@@ -587,4 +593,3 @@ class EmuFile(object):
 # ------------------- Info ---------------------------------------------------#
 
 _INFO_BOUNDS = ('thin', 'std', 'ext')
-

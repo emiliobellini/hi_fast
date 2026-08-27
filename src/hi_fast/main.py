@@ -14,6 +14,7 @@ class HiFast(object):
 
     _TRUSTED_REGIONS = ('thin', 'std', 'ext')
     _OUT_OF_BOUNDS_POLICIES = ('raise', 'class')
+
     def __init__(self, name, root='emu', timeit=False, verbose=False):
         """Instantiate the hi_fast interface and preload all requested
         emulators.
@@ -534,23 +535,44 @@ class HiFast(object):
             class_precision=0):
         """Evaluate growth rates for one cosmology or a parameter batch.
 
-        ``params`` accepts a dictionary, a sequence of dictionaries, or a
-        one/two-dimensional array. Array columns follow the direct growth-rate
-        emulator's ``input_params_names`` order, excluding ``z_pk``. Every
-        cosmology is evaluated at every value in ``z``. With ``paired=True``,
-        only ``params[i]`` at ``z[i]`` is evaluated and their lengths must be
-        equal. ``batch_size`` limits the number of cosmology-redshift pairs
-        per model call. The unsqueezed output shape is
-        ``(n_cosmologies, n_redshifts, n_k)`` by default and
-        ``(n_pairs, n_k)`` in paired mode.
+        Args:
+            k (float | sequence[float] | numpy.ndarray): Wavenumbers in
+                h/Mpc.
+            z (float | sequence[float] | numpy.ndarray): Redshifts.
+            params (dict | sequence[dict] | numpy.ndarray): One or more
+                cosmologies. Array columns follow the selected emulator's
+                parameter order, excluding ``z_pk``.
+            name (str): Growth spectrum: ``m``, ``cb``, or ``weyl``.
+            get_from_pk (bool): Derive growth from the corresponding power
+                spectrum emulator instead of a dedicated FK emulator.
+            nonlinear (bool): Placeholder; nonlinear growth is unsupported.
+            check_params_names (bool): Validate required parameter names.
+            check_params_values (bool): Validate cosmological parameters
+                against ``trusted_region``.
+            batch_size (int | None): Maximum flattened cosmology-redshift
+                pairs evaluated in one emulator call.
+            squeeze (bool): Remove all singleton output dimensions.
+            verbose (bool): Print parameter conversion details.
+            timeit (bool): Report total evaluation time.
+            paired (bool): Evaluate only ``params[i]`` at ``z[i]`` instead
+                of the Cartesian product.
+            trusted_region (str | None): ``thin``, ``std``, or ``ext``;
+                ``None`` always uses HiCLASS.
+            on_out_of_bounds (str): Either ``raise`` or ``class``.
+            class_precision (int | dict): HiCLASS precision preset or
+                explicit overrides used for fallback evaluations.
 
-        ``trusted_region`` accepts ``thin``, ``std``, or ``ext``.
-        Out-of-region entries either raise or use HiCLASS according to
-        ``on_out_of_bounds``. Passing ``trusted_region=None`` always uses
-        HiCLASS. ``class_precision`` is forwarded to those HiCLASS calls.
+        Returns:
+            numpy.ndarray or float: Dimensionless growth rates with shape
+            ``(n_cosmologies, n_redshifts, n_k)`` or ``(n_pairs, n_k)``
+            before optional squeezing.
+
+        Raises:
+            ValueError: If nonlinear mode, the boundary policy, paired
+                lengths, or requested coordinates are invalid.
         """
         if nonlinear:
-            raise ValueError('Nonlinear Pk not yet implemented')
+            raise ValueError('Nonlinear growth not yet implemented')
 
         self._validate_boundary_policy(
             trusted_region, on_out_of_bounds)
@@ -936,7 +958,7 @@ class HiFast(object):
         """
 
         if nonlinear:
-            raise ValueError('Nonlinear Pk not yet implemented')
+            raise ValueError('Nonlinear growth not yet implemented')
 
         return self._get_class_service().get_fk(
             k, z, params, name, precision, squeeze, verbose)
@@ -976,8 +998,8 @@ class HiFast(object):
             ell, params, name, precision, squeeze, verbose)
 
     def print_info(self, name=None, bounds=None, markdown=False, output=None):
-        """
-        Print summary info for each spectrum emulator.
+        """Print or render metadata for the loaded emulator bundle.
+
         Args:
             name (str | None): When provided, print info only for the named
                 spectrum.
@@ -988,6 +1010,10 @@ class HiFast(object):
                 tables.
             output (str | None): Optional file path used only with
                 ``markdown=True``. When omitted, Markdown is printed.
+
+        Returns:
+            str | None: Rendered Markdown when requested; otherwise the
+            terminal renderer's return value.
         """
         return metadata._print_info(
             self._spectra,

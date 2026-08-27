@@ -149,6 +149,7 @@ class Params(object):
         out = params.copy()
 
         def solve_all(x, params, names, targets, rules):
+            """Return shooting residuals for the current base parameters."""
             # Assign values
             for nname, name in enumerate(names):
                 params[rules[name]['base']] = x[nname]

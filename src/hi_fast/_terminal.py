@@ -13,6 +13,7 @@ def timeit(func):
         Callable: Wrapped callable preserving ``func``'s signature.
     """
     def wrapper_function(*args, **kwargs):
+        """Call the wrapped function and optionally report elapsed time."""
         try:
             dotimeit = kwargs['timeit']
         except KeyError:

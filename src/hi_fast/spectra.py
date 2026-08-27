@@ -425,6 +425,7 @@ class GridSpectrum(Spectrum):
     """Common infrastructure for spectra sampled on a ``(k, z)`` grid."""
 
     def __init__(self, **kwargs):
+        """Initialize shared k-z grids, limits, splines, and caches."""
         super().__init__(**kwargs)
 
         self.ref['z'] = kwargs['ref_z']
@@ -538,7 +539,7 @@ class GridSpectrum(Spectrum):
             verbose=False):
         """Compute ``f(k, z)`` from a CLASS power-spectrum table."""
         if nonlinear:
-            raise ValueError('Nonlinear Pk not yet implemented')
+            raise ValueError('Nonlinear growth not yet implemented')
 
         k = self._to_numpy_array(k)
         z = self._to_numpy_array(z)
@@ -581,6 +582,7 @@ class Pk(GridSpectrum):
     """Matter or Weyl-power-spectrum emulator."""
 
     def __init__(self, **kwargs):
+        """Initialize a power-spectrum emulator from serialized metadata."""
         super().__init__(**kwargs)
 
         # Input parameters (primordial power spectrum)
@@ -716,7 +718,7 @@ class Pk(GridSpectrum):
 
     def get_from_class(
             self, k, z, params, nonlinear=False, precision=0, verbose=False):
-        """Compute ``P(k, z)`` or ``f(k, z)`` directly with CLASS.
+        """Compute ``P(k, z)`` directly with HiCLASS.
 
         Args:
             k (float | list | numpy.ndarray): Wavenumbers in h/Mpc.
@@ -783,7 +785,7 @@ class Pk(GridSpectrum):
         returned shape is ``(n_cosmologies, n_k)``.
         """
         if nonlinear:
-            raise ValueError('Nonlinear Pk not yet implemented')
+            raise ValueError('Nonlinear growth not yet implemented')
 
         k = self._to_numpy_array(k)
         z = self._to_numpy_array(z)
@@ -877,6 +879,7 @@ class Fk(GridSpectrum):
     """Growth-rate emulator sampled on a ``(k, z)`` grid."""
 
     def __init__(self, **kwargs):
+        """Initialize a growth-rate emulator from serialized metadata."""
         super().__init__(**kwargs)
 
         # Input parameters
@@ -889,14 +892,15 @@ class Fk(GridSpectrum):
             k (float | list | numpy.ndarray): Wavenumbers in h/Mpc.
             z (float | list | numpy.ndarray): Redshifts.
             params (dict[str, float]): Cosmological parameters.
-            nonlinear (bool): Placeholder flag (nonlinear not supported).
+            nonlinear (bool): Placeholder flag; nonlinear growth is not
+                supported.
 
         Returns:
             numpy.ndarray: Growth rate values.
         """
 
         if nonlinear:
-            raise ValueError('Nonlinear Pk not yet implemented')
+            raise ValueError('Nonlinear growth not yet implemented')
         k = self._to_numpy_array(k)
         z = self._to_numpy_array(z)
         if isinstance(params, dict):
@@ -945,6 +949,7 @@ class Cell(Spectrum):
     """Angular CMB spectrum emulator."""
 
     def __init__(self, **kwargs):
+        """Initialize a CMB-spectrum emulator from serialized metadata."""
         Spectrum.__init__(self, **kwargs)
 
         # Input parameters (primordial power spectrum)
@@ -982,6 +987,7 @@ class Cell(Spectrum):
         return
 
     def _to_numpy_array(self, x):
+        """Normalize multipoles to a one-dimensional integer array."""
         x = Spectrum._to_numpy_array(self, x)
         if not np.all(x == np.floor(x)):
             raise ValueError('ell values must be integers')

@@ -50,6 +50,7 @@ class HiClassService:
     }
 
     def __init__(self, spectra, cache=None):
+        """Create a service for ``spectra`` using an optional shared cache."""
         self.spectra = spectra
         self.cache = HiClassCache() if cache is None else cache
 
@@ -149,6 +150,7 @@ class HiClassService:
 
     @classmethod
     def _extract_background(cls, cosmo, z, quantities, squeeze):
+        """Extract registered background quantities from a HiCLASS object."""
         result = {}
         for quantity in quantities:
             entry = cls.BACKGROUND_QUANTITIES[quantity]
@@ -165,6 +167,7 @@ class HiClassService:
     def get_background(
             self, params, z, quantities, precision=0, squeeze=False,
             verbose=False):
+        """Compute selected registered background quantities."""
         compute_params, key_params = self._background_request(
             params, precision=precision, verbose=verbose)
         with self.cache.use(
@@ -174,6 +177,7 @@ class HiClassService:
                 cosmo, z, quantities, squeeze=squeeze)
 
     def get_background_table(self, params, precision=0, verbose=False):
+        """Return a copy of HiCLASS's complete native background table."""
         compute_params, key_params = self._background_request(
             params, precision=precision, verbose=verbose)
         return self.cache.get_background_table(
@@ -276,12 +280,14 @@ class HiClassService:
         return common
 
     def get_pk(self, k, z, params, name, precision, squeeze, verbose):
+        """Extract and format one HiCLASS power-spectrum request."""
         spectrum = self.spectra['pk_{}'.format(name)]
         values = spectrum.get_from_class(
             k, z, params, precision=precision, verbose=verbose)
         return self.format_kz_result(values, k, z, squeeze=squeeze)
 
     def get_fk(self, k, z, params, name, precision, squeeze, verbose):
+        """Extract and format one HiCLASS growth-rate request."""
         fk_name = 'fk_{}'.format(name)
         if fk_name in self.spectra:
             spectrum = self.spectra[fk_name]
@@ -294,6 +300,7 @@ class HiClassService:
         return self.format_kz_result(values, k, z, squeeze=squeeze)
 
     def get_cell(self, ell, params, name, precision, squeeze, verbose):
+        """Extract and format one HiCLASS angular-spectrum request."""
         spectrum = self.get_cell_spectrum(name)
         values = spectrum.get_from_class(
             ell, params, precision=precision, verbose=verbose)
@@ -303,6 +310,7 @@ class HiClassService:
     def get_many(
             self, params, observables, precision=0, squeeze=False,
             verbose=False):
+        """Compute and extract a compatible multi-observable request."""
         requests = self.parse_observables(observables)
         common = self.common_params(
             params, precision, requests, verbose=verbose)

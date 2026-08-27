@@ -113,5 +113,5 @@ def test_reference_grid_caches_do_not_alias_caller_arrays():
 ])
 def test_grid_spectra_consistently_reject_nonlinear_requests(
         spectrum, method):
-    with pytest.raises(ValueError, match='Nonlinear Pk not yet implemented'):
+    with pytest.raises(ValueError, match='Nonlinear'):
         getattr(spectrum, method)([0.1], [0.0], {}, nonlinear=True)

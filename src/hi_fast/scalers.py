@@ -82,6 +82,7 @@ class NoneScaler(Scaler):
     """No-op scaler useful for debugging or optional preprocessing."""
 
     def __init__(self, **kwargs):
+        """Initialize a no-op scaler from serialized metadata."""
         Scaler.__init__(self, **kwargs)
         self.skl_scaler = None
         return
@@ -103,6 +104,7 @@ class NoneScaler(Scaler):
         return x_scaled
 
     def inverse_transform(self, x):
+        """Return unscaled values unchanged."""
         return x
 
 
@@ -111,6 +113,7 @@ class StandardScaler(Scaler):
     variance."""
 
     def __init__(self, **kwargs):
+        """Restore a fitted standard scaler from serialized attributes."""
         Scaler.__init__(self, **kwargs)
         self.skl_scaler = skl_pre.StandardScaler()
         # Store Scaler attributes
@@ -139,6 +142,7 @@ class LogStandardScaler(Scaler):
     """Log-transform followed by standard scaling."""
 
     def __init__(self, **kwargs):
+        """Restore a fitted log-standard scaler."""
         Scaler.__init__(self, **kwargs)
         self.skl_scaler = skl_pre.StandardScaler()
         # Store Scaler attributes
@@ -167,6 +171,7 @@ class MinusLogStandardScaler(Scaler):
     """Log-transform the negated input, then apply standard scaling."""
 
     def __init__(self, **kwargs):
+        """Restore a fitted negative-log standard scaler."""
         Scaler.__init__(self, **kwargs)
         self.skl_scaler = skl_pre.StandardScaler()
         # Store Scaler attributes
@@ -195,6 +200,7 @@ class MinMaxScaler(Scaler):
     """Scale each feature to the ``(0, 1)`` interval."""
 
     def __init__(self, **kwargs):
+        """Restore a fitted feature-wise min-max scaler."""
         Scaler.__init__(self, **kwargs)
         self.skl_scaler = skl_pre.MinMaxScaler()
         # Store Scaler attributes
@@ -225,6 +231,7 @@ class MinMaxCommonScaler(Scaler):
     """Apply a global (feature-shared) min-max scaling."""
 
     def __init__(self, **kwargs):
+        """Restore global min-max bounds from serialized metadata."""
         Scaler.__init__(self, **kwargs)
         # Store Scaler attributes
         self.glob_min_ = kwargs['glob_min_']
@@ -258,6 +265,7 @@ class MinMaxPlus1Scaler(Scaler):
     """Scale features to ``(1, 2)`` to avoid zeros."""
 
     def __init__(self, **kwargs):
+        """Restore a fitted shifted min-max scaler."""
         Scaler.__init__(self, **kwargs)
         self.skl_scaler = skl_pre.MinMaxScaler()
         # Store Scaler attributes
@@ -288,6 +296,7 @@ class ExpMinMaxScaler(Scaler):
     """Min-max scale features and then exponentiate the result."""
 
     def __init__(self, **kwargs):
+        """Restore a fitted exponential min-max scaler."""
         Scaler.__init__(self, **kwargs)
         self.skl_scaler = skl_pre.MinMaxScaler()
         # Store Scaler attributes

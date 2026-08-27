@@ -18,6 +18,7 @@ class HiClassCache:
     )
 
     def __init__(self):
+        """Initialize an empty, thread-safe single-computation cache."""
         self._lock = threading.RLock()
         self._cosmo = None
         self._base_key = None
@@ -222,6 +223,7 @@ class HiClassCache:
             }
 
     def __del__(self):
+        """Best-effort cleanup of native HiCLASS allocations."""
         try:
             self.clear()
         except Exception:
