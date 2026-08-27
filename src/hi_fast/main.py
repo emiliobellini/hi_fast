@@ -2,7 +2,7 @@ import numpy as np
 
 from . import io as io
 from . import spectra as sp
-from ._class_cache import HiClassCache
+from ._class_service import HiClassService
 from .params import Params
 
 
@@ -13,26 +13,9 @@ class HiFast(object):
     _TRUSTED_REGIONS = ('thin', 'std', 'ext')
     _OUT_OF_BOUNDS_POLICIES = ('raise', 'class')
     # Public HiFast name -> vectorized hiclassy method accepting only z.
-    _BACKGROUND_AT_Z = {
-        'H': 'Hubble',
-        'comoving_distance': 'comoving_distance',
-        'angular_diameter_distance': 'angular_distance',
-        'luminosity_distance': 'luminosity_distance',
-        'growth_factor': 'scale_independent_growth_factor',
-        'growth_rate': 'scale_independent_growth_factor_f',
-    }
+    _BACKGROUND_AT_Z = HiClassService.BACKGROUND_AT_Z
     # Public names that are scalar properties on a computed HiClass object.
-    _BACKGROUND_SCALARS = (
-        'age',
-        'Omega_m',
-        'Omega_b',
-        'Omega_cdm',
-        'Omega_k',
-        'Omega_r',
-        'Omega_g',
-        'Omega_nu',
-        'Omega_Lambda',
-    )
+    _BACKGROUND_SCALARS = HiClassService.BACKGROUND_SCALARS
     _BACKGROUND_UNITS = {
         'H': 'km/s/Mpc',
         'comoving_distance': 'Mpc',
@@ -72,7 +55,8 @@ class HiFast(object):
         except (OSError, ValueError) as error:
             io.warning('Ignoring invalid validation report: {}'.format(error))
             self._validation = None
-        self._class_cache = HiClassCache()
+        self._class_service = HiClassService(self._spectra)
+        self._class_cache = self._class_service.cache
         for spectrum in self._spectra.values():
             spectrum._class_cache = self._class_cache
         # Init parameters handlers
@@ -81,59 +65,25 @@ class HiFast(object):
 
     def _clear_class_cache(self):
         """Release the private shared HiCLASS computation."""
-        self._class_cache.clear()
+        self._get_class_service().clear()
 
     def _get_class_cache_info(self):
         """Return private diagnostics for the shared HiCLASS cache."""
-        return self._class_cache.info()
+        return self._get_class_service().info()
 
-    def _get_background_class_request(
-            self, params, precision=0, verbose=False):
-        """Return minimal compute parameters and a cache-compatible key."""
-        if 'pk_m' in self._spectra:
-            spectrum = self._spectra['pk_m']
-        else:
-            spectrum = next(iter(self._spectra.values()))
-        class_args = {name: value
-                      for name, value in spectrum.class_args.items()
-                      if name not in spectrum.class_high_prec}
-        key_params = spectrum._get_input_params_class(
-            params, precision, class_args, verbose=verbose)
-
-        # CLASS rejects perturbation, primordial, and thermodynamics options
-        # when only the background module is requested. Keep them in the
-        # logical cache key, but omit them from the fast background run.
-        unused = {
-            'output', 'P_k_max_h/Mpc', 'P_k_max_1/Mpc', 'z_max_pk',
-            'l_max_scalars', 'lensing', 'modes', 'k_pivot', 'YHe',
-            'ln_A_s_1e10', 'A_s', 'n_s', 'tau_reio', 'sigma8', 'S8',
-            'sigma8_m', 'S8_m',
-        }
-        unused.update(spectrum.class_high_prec)
-        compute_params = {
-            name: value for name, value in key_params.items()
-            if name not in unused
-            and (not name.endswith('_verbose')
-                 or name in ('input_verbose', 'background_verbose'))
-        }
-        return compute_params, key_params
-
-    @staticmethod
-    def _extract_background(cosmo, z, quantities, squeeze):
-        """Extract selected background quantities from a computed instance."""
-        result = {}
-        for quantity in quantities:
-            if quantity in HiFast._BACKGROUND_AT_Z:
-                method = getattr(
-                    cosmo, HiFast._BACKGROUND_AT_Z[quantity])
-                value = np.asarray(method(z))
-                if quantity == 'H':
-                    # hiclassy.Hubble returns H(z)/c in inverse Mpc.
-                    value = value * 299792.458
-                result[quantity] = value.squeeze() if squeeze else value
-            else:
-                result[quantity] = getattr(cosmo, quantity)
-        return result
+    def _get_class_service(self):
+        """Return the service, creating it for lightweight test instances."""
+        spectra = getattr(self, '_spectra', {})
+        service = getattr(self, '_class_service', None)
+        cache = getattr(self, '_class_cache', None)
+        if (service is None or service.spectra is not spectra
+                or (cache is not None and service.cache is not cache)):
+            service = HiClassService(spectra, cache=cache)
+            self._class_service = service
+            self._class_cache = service.cache
+            for spectrum in spectra.values():
+                spectrum._class_cache = service.cache
+        return service
 
     @io.timeit
     def get_background(
@@ -191,13 +141,9 @@ class HiFast(object):
                 raise ValueError(
                     'z must be a scalar or a non-empty one-dimensional array')
 
-        compute_params, key_params = self._get_background_class_request(
-            params, precision=precision, verbose=verbose)
-        with self._class_cache.use(
-                compute_params, requirements={}, key_params=key_params
-                ) as cosmo:
-            return self._extract_background(
-                cosmo, z, quantities, squeeze=squeeze)
+        return self._get_class_service().get_background(
+            params, z, quantities, precision=precision, squeeze=squeeze,
+            verbose=verbose)
 
     @io.timeit
     def get_background_table(
@@ -222,10 +168,8 @@ class HiFast(object):
         """
         if not isinstance(params, dict):
             raise ValueError('params must be one cosmology dictionary')
-        compute_params, key_params = self._get_background_class_request(
+        return self._get_class_service().get_background_table(
             params, precision=precision, verbose=verbose)
-        return self._class_cache.get_background_table(
-            compute_params, key_params=key_params)
 
     @classmethod
     def _background_info(cls):
@@ -339,44 +283,6 @@ class HiFast(object):
                 '{} = [{} - {}] is outside emulator support [{} - {}]'
                 .format(name, values.min(), values.max(), low, high))
 
-    @staticmethod
-    def _evaluate_class_pairs(
-            spectrum, coordinates, params, cosmology_indices,
-            coordinate_indices, selected, class_precision, verbose,
-            growth=False):
-        """Evaluate selected flattened pairs, grouping each CLASS run by
-        cosmology."""
-        n_modes = np.atleast_1d(coordinates[0]).size
-        out = np.empty((len(cosmology_indices), n_modes), dtype=float)
-        selected_positions = np.flatnonzero(selected)
-        for cosmology_index in np.unique(
-                cosmology_indices[selected_positions]):
-            positions = selected_positions[
-                cosmology_indices[selected_positions] == cosmology_index]
-            sample_indices = coordinate_indices[positions]
-            sample_coordinates = coordinates[1][sample_indices]
-            if growth and hasattr(spectrum, 'get_fk_from_class'):
-                values = spectrum.get_fk_from_class(
-                    coordinates[0], sample_coordinates,
-                    params[cosmology_index], precision=class_precision,
-                    verbose=verbose)
-            else:
-                values = spectrum.get_from_class(
-                    coordinates[0], sample_coordinates,
-                    params[cosmology_index], precision=class_precision,
-                    verbose=verbose)
-            out[positions] = np.asarray(values).reshape(
-                n_modes, len(sample_coordinates)).T
-        return out
-
-    @staticmethod
-    def _format_class_kz_result(values, k, z, squeeze=False):
-        """Convert native CLASS k-z orientation to the public output shape."""
-        n_k = np.atleast_1d(k).size
-        n_z = np.atleast_1d(z).size
-        result = np.asarray(values).reshape(n_k, n_z).T[np.newaxis, :, :]
-        return result.squeeze() if squeeze else result
-
     def get_params_names(self, spectrum):
         """Return the ordered parameter names expected by array input.
 
@@ -422,20 +328,7 @@ class HiFast(object):
 
     def _get_cell_spectrum(self, name):
         """Resolve a public CMB selector to an available emulator."""
-        lensed_name = 'cl_{}_lensed'.format(name)
-        raw_name = 'cl_{}'.format(name)
-        if lensed_name in self._spectra:
-            return self._spectra[lensed_name]
-        if raw_name in self._spectra:
-            return self._spectra[raw_name]
-
-        available = sorted({
-            key.removeprefix('cl_').removesuffix('_lensed')
-            for key in self._spectra if key.startswith('cl_')
-        })
-        raise ValueError(
-            'CMB spectrum {!r} is not available. Choose from {}'
-            .format(name, available))
+        return self._get_class_service().get_cell_spectrum(name)
 
     @io.timeit
     def _load(self, name, root, timeit=False, verbose=False):
@@ -638,7 +531,7 @@ class HiFast(object):
 
         class_mask = ~emulator_mask
         if np.any(class_mask):
-            class_out = self._evaluate_class_pairs(
+            class_out = self._get_class_service().evaluate_pairs(
                 spectrum, (k, z), params, cosmology_indices,
                 redshift_indices, class_mask, class_precision, verbose)
             out[class_mask] = class_out[class_mask]
@@ -810,7 +703,7 @@ class HiFast(object):
         if np.any(class_mask):
             class_spectrum = self._spectra.get(
                 'fk_{}'.format(name), self._spectra['pk_{}'.format(name)])
-            class_out = self._evaluate_class_pairs(
+            class_out = self._get_class_service().evaluate_pairs(
                 class_spectrum, (k, z), class_params, cosmology_indices,
                 redshift_indices, class_mask, class_precision, verbose,
                 growth=True)
@@ -942,113 +835,6 @@ class HiFast(object):
 
         return out
 
-    def _parse_class_observables(self, observables):
-        """Validate and flatten a structured multi-observable request."""
-        if not isinstance(observables, dict) or not observables:
-            raise ValueError('observables must be a non-empty dictionary')
-        unknown_groups = set(observables) - {'pk', 'fk', 'cell'}
-        if unknown_groups:
-            raise ValueError('Unknown observable groups: {}'.format(
-                sorted(unknown_groups)))
-
-        requests = []
-        expected = {
-            'pk': {'k', 'z'},
-            'fk': {'k', 'z'},
-            'cell': {'ell'},
-        }
-        for kind, group in observables.items():
-            if not isinstance(group, dict) or not group:
-                raise ValueError(
-                    'observables[{!r}] must be a non-empty dictionary'
-                    .format(kind))
-            for name, coordinates in group.items():
-                if not isinstance(coordinates, dict):
-                    raise ValueError(
-                        'The {} {} request must be a dictionary'.format(
-                            kind, name))
-                keys = set(coordinates)
-                if keys != expected[kind]:
-                    raise ValueError(
-                        'The {} {} request requires exactly {}; got {}'
-                        .format(kind, name, sorted(expected[kind]),
-                                sorted(keys)))
-
-                if kind == 'cell':
-                    spectrum = self._get_cell_spectrum(name)
-                    parsed_coordinates = {
-                        'ell': np.atleast_1d(coordinates['ell'])}
-                else:
-                    spectrum_name = '{}_{}'.format(kind, name)
-                    if kind == 'fk' and spectrum_name not in self._spectra:
-                        spectrum_name = 'pk_{}'.format(name)
-                    if spectrum_name not in self._spectra:
-                        raise ValueError(
-                            'Spectrum {}_{} is not available'.format(
-                                kind, name))
-                    spectrum = self._spectra[spectrum_name]
-                    parsed_coordinates = {
-                        'k': np.atleast_1d(coordinates['k']),
-                        'z': np.atleast_1d(coordinates['z']),
-                    }
-                if any(value.ndim != 1 or not value.size
-                       for value in parsed_coordinates.values()):
-                    raise ValueError(
-                        'Coordinates for {} {} must be non-empty scalars or '
-                        'one-dimensional arrays'.format(kind, name))
-                requests.append({
-                    'kind': kind,
-                    'name': name,
-                    'spectrum': spectrum,
-                    'coordinates': parsed_coordinates,
-                })
-        return requests
-
-    @staticmethod
-    def _get_common_class_params(
-            params, precision, requests, verbose=False):
-        """Build one compatible CLASS parameter dictionary for requests."""
-        common = None
-        common_key = None
-        outputs = set()
-        limits = {key: None for key in HiClassCache._LIMIT_KEYS}
-        for request in requests:
-            spectrum = request['spectrum']
-            coordinates = request['coordinates']
-            if request['kind'] == 'cell':
-                class_params, requirements = spectrum._get_class_request(
-                    coordinates['ell'], params, precision=precision,
-                    verbose=verbose)
-            else:
-                class_params, requirements = spectrum._get_class_request(
-                    coordinates['k'], coordinates['z'], params,
-                    precision=precision, verbose=verbose)
-            base_key, _ = HiClassCache._request_parts(class_params)
-            if common_key is None:
-                common = class_params.copy()
-                common.pop('output', None)
-                for key in HiClassCache._LIMIT_KEYS:
-                    common.pop(key, None)
-                common_key = base_key
-            elif base_key != common_key:
-                raise ValueError(
-                    'Requested observables require incompatible CLASS '
-                    'settings')
-            outputs.update(HiClassCache._outputs(
-                requirements.get('output')))
-            for key in HiClassCache._LIMIT_KEYS:
-                value = HiClassCache._limit(requirements.get(key))
-                if value is not None:
-                    limits[key] = (value if limits[key] is None
-                                   else max(limits[key], value))
-
-        if outputs:
-            common['output'] = ', '.join(sorted(outputs))
-        for key, value in limits.items():
-            if value is not None:
-                common[key] = value
-        return common
-
     @io.timeit
     def get_from_class(
             self,
@@ -1089,33 +875,9 @@ class HiFast(object):
         """
         if not isinstance(params, dict):
             raise ValueError('params must be one cosmology dictionary')
-        requests = self._parse_class_observables(observables)
-        common_params = self._get_common_class_params(
-            params, precision, requests, verbose=verbose)
-
-        # Populate or upgrade the shared cache before extracting any result.
-        with self._class_cache.use(common_params):
-            pass
-
-        results = {kind: {} for kind in observables}
-        for request in requests:
-            kind = request['kind']
-            name = request['name']
-            coordinates = request['coordinates']
-            if kind == 'cell':
-                value = self.get_cell_from_class(
-                    coordinates['ell'], params, name=name,
-                    precision=precision, squeeze=squeeze, verbose=verbose)
-            elif kind == 'pk':
-                value = self.get_pk_from_class(
-                    coordinates['k'], coordinates['z'], params, name=name,
-                    precision=precision, squeeze=squeeze, verbose=verbose)
-            else:
-                value = self.get_fk_from_class(
-                    coordinates['k'], coordinates['z'], params, name=name,
-                    precision=precision, squeeze=squeeze, verbose=verbose)
-            results[kind][name] = value
-        return results
+        return self._get_class_service().get_many(
+            params, observables, precision=precision, squeeze=squeeze,
+            verbose=verbose)
 
     @io.timeit
     def get_pk_from_class(
@@ -1161,13 +923,8 @@ class HiFast(object):
         if nonlinear:
             raise ValueError('Nonlinear Pk not yet implemented')
 
-        # Select correct spectrum
-        spectrum = self._spectra['pk_{}'.format(name)]
-
-        # Get output
-        out = spectrum.get_from_class(
-            k, z, params, precision=precision, verbose=verbose)
-        return self._format_class_kz_result(out, k, z, squeeze=squeeze)
+        return self._get_class_service().get_pk(
+            k, z, params, name, precision, squeeze, verbose)
 
     @io.timeit
     def get_fk_from_class(
@@ -1213,18 +970,8 @@ class HiFast(object):
         if nonlinear:
             raise ValueError('Nonlinear Pk not yet implemented')
 
-        # Prefer the dedicated growth metadata, but P(k) metadata carries
-        # the same CLASS configuration when no f(k) emulator is bundled.
-        fk_name = 'fk_{}'.format(name)
-        if fk_name in self._spectra:
-            spectrum = self._spectra[fk_name]
-            out = spectrum.get_from_class(
-                k, z, params, precision=precision, verbose=verbose)
-        else:
-            spectrum = self._spectra['pk_{}'.format(name)]
-            out = spectrum.get_fk_from_class(
-                k, z, params, precision=precision, verbose=verbose)
-        return self._format_class_kz_result(out, k, z, squeeze=squeeze)
+        return self._get_class_service().get_fk(
+            k, z, params, name, precision, squeeze, verbose)
 
     @io.timeit
     def get_cell_from_class(
@@ -1257,19 +1004,8 @@ class HiFast(object):
             ``(1, n_ell)`` before optional squeezing.
         """
 
-        # Select correct spectrum
-        spectrum = self._get_cell_spectrum(name)
-
-        # Get output
-        out = spectrum.get_from_class(
-            ell, params, precision=precision, verbose=verbose)
-        out = np.asarray(out).reshape(1, np.atleast_1d(ell).size)
-
-        # Squeeze dimensions
-        if squeeze:
-            return out.squeeze()
-
-        return out
+        return self._get_class_service().get_cell(
+            ell, params, name, precision, squeeze, verbose)
 
     def print_info(self, name=None, bounds=None, markdown=False, output=None):
         """

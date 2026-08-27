@@ -4,6 +4,7 @@ import numpy as np
 
 import hi_fast._class_cache as cache_module
 from hi_fast._class_cache import HiClassCache
+from hi_fast._class_service import HiClassService
 from hi_fast.main import HiFast
 import hi_fast.spectra as spectra_module
 
@@ -265,14 +266,14 @@ def test_combined_api_computes_cell_and_pk_once(monkeypatch):
 
 
 def test_combined_api_validates_request_structure():
-    hifast = HiFast.__new__(HiFast)
+    service = HiClassService({})
 
     with np.testing.assert_raises_regex(ValueError, 'non-empty dictionary'):
-        hifast._parse_class_observables({})
+        service.parse_observables({})
     with np.testing.assert_raises_regex(ValueError, 'Unknown observable'):
-        hifast._parse_class_observables({'background': {'H': {}}})
+        service.parse_observables({'background': {'H': {}}})
     with np.testing.assert_raises_regex(ValueError, 'requires exactly'):
-        hifast._parse_class_observables(
+        service.parse_observables(
             {'pk': {'m': {'k': [0.1]}}})
 
 

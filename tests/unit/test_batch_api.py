@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from hi_fast import HiFast
+from hi_fast._class_service import HiClassService
 import hi_fast.io as io_module
 import hi_fast.spectra as spectra_module
 
@@ -641,7 +642,7 @@ def test_class_kz_formatter_preserves_public_axis_order(
         squeeze, expected_shape):
     native = np.arange(6).reshape(3, 2)
 
-    result = HiFast._format_class_kz_result(
+    result = HiClassService.format_kz_result(
         native, k=[0.1, 0.2, 0.3], z=[0.0, 1.0], squeeze=squeeze)
     expected = native.T[np.newaxis, :, :]
     if squeeze:
