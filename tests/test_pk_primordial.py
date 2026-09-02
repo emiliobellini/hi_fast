@@ -44,6 +44,7 @@ for spectrum in ['pk_m', 'pk_cb', 'pk_weyl']:
         timeit=True)
 
     # Rescale primordial Pk
+    params['h'] = 0.80
     params['ln_A_s_1e10'] = 4.
     params['n_s'] = 1.2
 
