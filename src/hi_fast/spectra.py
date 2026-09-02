@@ -618,8 +618,8 @@ class Pk(GridSpectrum):
         Args:
             ln_A_s_1e10 (float): Unnormalized log amplitude.
             n_s (float): Scalar spectral index.
-            k_pivot (float): Pivot scale in h/Mpc.
-            k (numpy.ndarray): Target wavenumbers in h/Mpc.
+            k_pivot (float): Pivot scale in 1/Mpc.
+            k (numpy.ndarray): Target wavenumbers in 1/Mpc.
 
         Returns:
             numpy.ndarray: Primordial spectrum values.
@@ -703,12 +703,14 @@ class Pk(GridSpectrum):
             out = out_emu
 
         # Adjust shape with primordial Pk
-        ref_primordial = self._get_primordial_pk(
-            self.ref['params']['ln_A_s_1e10'],
-            self.ref['params']['n_s'],
-            self.ref['params']['k_pivot'],
-            k*self.ref['params']['h'])
         for index, row in enumerate(params):
+            # The emulator already captures the h dependence at fixed
+            # primordial parameters.  Correct only the amplitude and tilt at
+            # the current physical wavenumber, k [h/Mpc] * h [1/Mpc].
+            ref_primordial = self._get_primordial_pk(
+                self.ref['params']['ln_A_s_1e10'],
+                self.ref['params']['n_s'],
+                self.ref['params']['k_pivot'], k*row['h'])
             primordial = self._get_primordial_pk(
                 row['ln_A_s_1e10'], row['n_s'],
                 self.ref['params']['k_pivot'], k*row['h'])

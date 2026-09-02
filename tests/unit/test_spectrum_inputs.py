@@ -124,6 +124,37 @@ def test_power_spectrum_numerical_helpers():
     ) == pytest.approx(target_sigma)
 
 
+def test_primordial_correction_does_not_reapply_h_dependence():
+    pk = Pk.__new__(Pk)
+    k = np.array([0.05, 0.1, 0.2])
+    pk.k_min, pk.k_max = k.min(), k.max()
+    pk.z_min = pk.z_max = 0.0
+    pk.x_names = ['h', 'z_pk']
+    pk.ref = {
+        'k': k.copy(),
+        'spectrum': None,
+        'spectrum_z_spline': None,
+        'params': {
+            'h': 0.6732,
+            'ln_A_s_1e10': 3.044,
+            'n_s': 0.966,
+            'k_pivot': 0.05,
+        },
+    }
+    pk.stored = {'k': None, 'z': None, 'ref_spectrum': None}
+    pk._eval_emu_batch = lambda x: np.ones((len(x), len(k)))
+
+    params = [{
+        'h': h,
+        'ln_A_s_1e10': pk.ref['params']['ln_A_s_1e10'],
+        'n_s': pk.ref['params']['n_s'],
+    } for h in (0.65, 0.70, 0.73)]
+
+    result = pk.get(k, np.zeros(len(params)), params)
+
+    np.testing.assert_allclose(result, 1.0, rtol=0.0, atol=1e-15)
+
+
 def test_grid_emulator_input_follows_serialized_parameter_order():
     spectrum = GridSpectrum.__new__(GridSpectrum)
     spectrum.x_names = ['Omega_m', 'z_pk', 'h']
