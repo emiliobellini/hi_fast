@@ -327,58 +327,100 @@ def _summarize(spectrum, method, region, rms, kind, sources):
     }
 
 
-def _plot_histogram(rms, spectrum, method, region, kind, save_dir):
-    """Plot one cumulative held-out RMS distribution."""
+def _plot_validation(regions, spectrum, method, save_dir):
+    """Plot RMS distributions and worst predictions for all data ranges."""
     plt = _pyplot()
-    positive = rms[rms > 0]
-    floor = np.finfo(float).tiny if not len(positive) else positive.min()/10
-    fig, ax = plt.subplots(figsize=(7, 4.5))
-    ax.hist(np.log10(np.maximum(rms, floor)), bins=30, log=True)
-    for threshold in THRESHOLDS_PERCENT:
-        ax.axvline(np.log10(threshold/100), color='r', lw=0.7)
-    ax.set(
-        title='{} — {} — {} cumulative test set'.format(
-            spectrum, method, region),
-        xlabel=r'$\log_{{10}}$ RMS {} error'.format(kind),
-        ylabel='Number of test models')
-    fig.tight_layout()
-    filename = 'hist_{}_{}_{}.png'.format(spectrum, method, region)
-    fig.savefig(save_dir / filename, dpi=150)
-    plt.close(fig)
-
-
-def _plot_worst(worst, spectrum, method, region, kind, save_dir):
-    """Plot the worst cumulative held-out predictions."""
-    if not worst:
-        return
-    plt = _pyplot()
+    n_rows = WORST_COUNT + 2
     fig, axes = plt.subplots(
-        len(worst) + 1, 1, figsize=(8, 3.2*(len(worst) + 1)))
+        n_rows, len(REGIONS), figsize=(15, 3.0*n_rows), squeeze=False)
+
+    # Identical histogram bins make the three cumulative ranges comparable.
+    rms_parts = [state['rms'] for state in regions if len(state['rms'])]
+    all_rms = np.concatenate(rms_parts) if rms_parts else np.empty(0)
+    positive = all_rms[all_rms > 0]
+    floor = np.finfo(float).tiny if not len(positive) else positive.min()/10
+    log_rms = np.log10(np.maximum(all_rms, floor))
+    if not len(log_rms) or np.min(log_rms) == np.max(log_rms):
+        histogram_bins = 30
+    else:
+        histogram_bins = np.linspace(np.min(log_rms), np.max(log_rms), 31)
+
+    kind = regions[-1]['kind']
     error_scale = 100.0 if kind == 'relative' else 1.0
-    for rank, record in enumerate(worst, 1):
-        label = 'rank {}, {} row {}'.format(
-            rank, record['source'], record['row'])
-        axes[0].plot(record['grid'],
-                     np.abs(record['errors'])*error_scale,
-                     label=label)
-        axes[rank].plot(record['grid'], record['data'], label='stored data')
-        axes[rank].plot(
-            record['grid'], record['prediction'], '--', label='HiFast')
-        axes[rank].set_ylabel(label)
-        axes[rank].legend()
-    axes[0].set_yscale('log')
-    axes[0].set_ylabel(
-        'relative error [%]' if kind == 'relative' else 'absolute error')
-    axes[0].legend()
-    axes[-1].set_xlabel(
-        'k [h/Mpc]' if spectrum.startswith(('pk_', 'fk_')) else r'$\ell$')
-    if spectrum.startswith(('pk_', 'fk_')):
-        for axis in axes:
-            axis.set_xscale('log')
-    fig.suptitle('Worst test models: {} — {} — {}'.format(
-        spectrum, method, region))
-    fig.tight_layout()
-    filename = 'worst_{}_{}_{}.png'.format(spectrum, method, region)
+    is_wavenumber = spectrum.startswith(('pk_', 'fk_'))
+    x_label = 'k [h/Mpc]' if is_wavenumber else r'$\ell$'
+
+    for column, (region, state) in enumerate(zip(REGIONS, regions)):
+        histogram_axis = axes[0, column]
+        values = np.log10(np.maximum(state['rms'], floor))
+        histogram_axis.hist(values, bins=histogram_bins, log=True)
+        for threshold in THRESHOLDS_PERCENT:
+            histogram_axis.axvline(
+                np.log10(threshold/100), color='r', lw=0.7)
+        sources = ' + '.join(REGIONS[:column + 1])
+        histogram_axis.set_title('{} ({})'.format(region, sources))
+        histogram_axis.set_xlabel(
+            r'$\log_{{10}}$ RMS {} error'.format(kind))
+        if column == 0:
+            histogram_axis.set_ylabel('Number of test models')
+
+        error_axis = axes[1, column]
+        for rank, record in enumerate(state['worst'], 1):
+            label = '#{}: {} row {} (RMS {:.3g})'.format(
+                rank, record['source'], record['row'], record['rms'])
+            error_axis.plot(
+                record['grid'], np.abs(record['errors'])*error_scale,
+                label=label)
+        error_axis.set_yscale('log')
+        if column == 0:
+            error_axis.set_ylabel(
+                'relative error [%]' if kind == 'relative'
+                else 'absolute error')
+        error_axis.legend(fontsize='small')
+
+        for rank in range(1, WORST_COUNT + 1):
+            prediction_axis = axes[rank + 1, column]
+            if rank <= len(state['worst']):
+                record = state['worst'][rank - 1]
+                prediction_axis.plot(
+                    record['grid'], record['data'], label='stored data')
+                prediction_axis.plot(
+                    record['grid'], record['prediction'], '--',
+                    label='HiFast')
+                prediction_axis.text(
+                    0.02, 0.95, '#{}: {} row {}'.format(
+                        rank, record['source'], record['row']),
+                    transform=prediction_axis.transAxes, va='top',
+                    fontsize='small')
+                if column == 0 and rank == 1:
+                    prediction_axis.legend(fontsize='small')
+            else:
+                prediction_axis.set_visible(False)
+            if column == 0:
+                prediction_axis.set_ylabel('worst #{}'.format(rank))
+            if rank == WORST_COUNT:
+                prediction_axis.set_xlabel(x_label)
+
+        if is_wavenumber:
+            for axis in axes[1:, column]:
+                axis.set_xscale('log')
+
+    # Use the same limits for corresponding panels wherever practical.
+    for row in range(n_rows):
+        visible = [axis for axis in axes[row] if axis.get_visible()]
+        if not visible:
+            continue
+        x_min = min(axis.get_xlim()[0] for axis in visible)
+        x_max = max(axis.get_xlim()[1] for axis in visible)
+        for axis in visible:
+            axis.set_xlim(x_min, x_max)
+    histogram_ymax = max(axis.get_ylim()[1] for axis in axes[0])
+    for axis in axes[0]:
+        axis.set_ylim(top=histogram_ymax)
+
+    fig.suptitle('{} — {} validation'.format(spectrum, method))
+    fig.tight_layout(rect=(0, 0, 1, 0.98))
+    filename = 'validation_{}_{}.png'.format(spectrum, method)
     fig.savefig(save_dir / filename, dpi=150)
     plt.close(fig)
 
@@ -393,7 +435,10 @@ def _validate_spectrum(cosmo, spectrum, paths, split, batch_size,
     if spectrum.startswith('fk_'):
         methods.append(('from_pk', True))
     cumulative = {
-        method: {'rms': [], 'worst': [], 'sources': [], 'kind': None}
+        method: {
+            'rms': [], 'worst': [], 'sources': [], 'kind': None,
+            'regions': [],
+        }
         for method, _ in methods
     }
     results = []
@@ -435,12 +480,17 @@ def _validate_spectrum(cosmo, spectrum, paths, split, batch_size,
                   '{:.3f} s other)'.format(
                       timing['total'], timing['emulator'], timing['other']))
             if make_plots:
-                _plot_histogram(
-                    cumulative_rms, spectrum, method, region, kind, save_dir)
-                _plot_worst(
-                    state['worst'], spectrum, method, region, kind, save_dir)
+                state['regions'].append({
+                    'rms': cumulative_rms.copy(),
+                    'worst': list(state['worst']),
+                    'kind': kind,
+                })
 
         del dataset
+    if make_plots:
+        for method, _ in methods:
+            _plot_validation(
+                cumulative[method]['regions'], spectrum, method, save_dir)
     return results, len(test_mask), int(np.count_nonzero(test_mask))
 
 
