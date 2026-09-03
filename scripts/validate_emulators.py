@@ -460,7 +460,9 @@ def main():
     parser.add_argument(
         '--output', help='Validation JSON path. Default: bundle directory')
     parser.add_argument(
-        '--plot-dir', default=str(REPO_ROOT / 'validation_plots'))
+        '--plot-dir',
+        help=('Root for model-specific plot folders. Default: write plots '
+              'inside the emulator bundle under validation_plots/'))
     parser.add_argument('--no-plots', action='store_true')
     args = parser.parse_args()
     if args.batch_size < 1:
@@ -469,7 +471,10 @@ def main():
     emulator_root = Path(args.emulator_root).expanduser().resolve()
     output = (Path(args.output).expanduser().resolve() if args.output else
               emulator_root / args.model / 'validation.json')
-    save_dir = Path(args.plot_dir).expanduser().resolve() / args.model
+    if args.plot_dir:
+        save_dir = Path(args.plot_dir).expanduser().resolve() / args.model
+    else:
+        save_dir = emulator_root / args.model / 'validation_plots'
     if not args.no_plots:
         save_dir.mkdir(parents=True, exist_ok=True)
 
